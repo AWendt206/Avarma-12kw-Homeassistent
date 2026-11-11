@@ -1,0 +1,22 @@
+# Zugangsdaten – nie veröffentlichen
+secrets.yaml
+**/secrets.yaml
+.env
+*.pem
+*.key
+
+# ESPHome-Build-Artefakte
+.esphome/
+esphome/.esphome/
+
+# Messdaten und Zwischenstände
+*.csv
+analysis/*.json
+analysis/*.html
+!grafana/*.json
+
+# Werkzeuge / System
+node_modules/
+__pycache__/
+.DS_Store
+Thumbs.db

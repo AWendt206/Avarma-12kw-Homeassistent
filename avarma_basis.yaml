@@ -1,0 +1,220 @@
+# Copyright (c) 2026 AWendt206 · MIT-Lizenz · https://github.com/AWendt206/
+# =====================================================================
+# Avarma 12 kW (Hofman HE-AI-290) – Basis: Status-Bits, Modus, Fehler, Kennwerte
+# Teil des Projekts avarma-ha · MIT-Lizenz · EXPERIMENTELL, keine Herstellerfreigabe
+#
+# Voraussetzung: ESPHome-Gerät mit dem Namen "Hausinstallation Avarma"
+# (liefert sensor.hausinstallation_avarma_* / select.hausinstallation_avarma_betrieb).
+# Anderer Gerätename? Dann "hausinstallation_avarma" in allen Paketdateien ersetzen.
+#
+# Diese Datei LIEST nur. Sie verändert keine Anlagen- oder P-Parameter.
+# =====================================================================
+template:
+  # ---------------- Betriebs-/Ausgangszustand (Bitmasken) ----------------
+  - binary_sensor:
+      - name: "Avarma Verdichter läuft"
+        unique_id: avarma_verdichter_lauft
+        default_entity_id: binary_sensor.avarma_verdichter_lauft
+        device_class: running
+        state: "{{ (states('sensor.hausinstallation_avarma_verdichterfrequenz_ist') | float(0)) > 0 }}"
+
+      - name: "Avarma Abtauung"
+        unique_id: avarma_abtauung
+        default_entity_id: binary_sensor.avarma_abtauung
+        # Betriebszustand Bit 4 (Wert 16)
+        state: "{{ ((states('sensor.hausinstallation_avarma_betriebszustand_code') | int(0)) // 16) % 2 == 1 }}"
+
+      - name: "Avarma Abtauung gefiltert"
+        unique_id: avarma_abtauung_gefiltert
+        default_entity_id: binary_sensor.avarma_abtauung_gefiltert
+        state: "{{ is_state('binary_sensor.avarma_abtauung', 'on') }}"
+        delay_off: "00:01:30"
+
+      - name: "Avarma Alarm"
+        unique_id: avarma_alarm
+        default_entity_id: binary_sensor.avarma_alarm
+        device_class: problem
+        state: "{{ ((states('sensor.hausinstallation_avarma_betriebszustand_code') | int(0)) // 8) % 2 == 1 }}"
+
+      - name: "Avarma Frostschutz aktiv"
+        unique_id: avarma_frostschutz_aktiv
+        default_entity_id: binary_sensor.avarma_frostschutz_aktiv
+        state: "{{ ((states('sensor.hausinstallation_avarma_betriebszustand_code') | int(0)) // 512) % 2 == 1 }}"
+
+      - name: "Avarma Fehler aktiv"
+        unique_id: avarma_fehler_aktiv
+        default_entity_id: binary_sensor.avarma_fehler_aktiv
+        device_class: problem
+        state: >-
+          {{ ((states('sensor.hausinstallation_avarma_fehlergruppe_0_code') | int(0))
+            + (states('sensor.hausinstallation_avarma_fehlergruppe_1_code') | int(0))
+            + (states('sensor.hausinstallation_avarma_fehlergruppe_2_code') | int(0))
+            + (states('sensor.hausinstallation_avarma_fehlergruppe_3_code') | int(0))) > 0 }}
+
+      # Ausgangszustand-Code: ein Bit je Ausgang
+      - name: "Avarma Vierwegeventil"
+        unique_id: avarma_vierwegeventil
+        default_entity_id: binary_sensor.avarma_vierwegeventil
+        state: "{{ (states('sensor.hausinstallation_avarma_ausgangszustand_code') | int(0)) % 2 == 1 }}"
+      - name: "Avarma Ölheizung"
+        unique_id: avarma_olheizung
+        default_entity_id: binary_sensor.avarma_olheizung
+        state: "{{ (((states('sensor.hausinstallation_avarma_ausgangszustand_code') | int(0)) // 2) % 2) == 1 }}"
+      - name: "Avarma Umwälzpumpe"
+        unique_id: avarma_umwalzpumpe
+        default_entity_id: binary_sensor.avarma_umwalzpumpe
+        device_class: running
+        state: "{{ (((states('sensor.hausinstallation_avarma_ausgangszustand_code') | int(0)) // 8) % 2) == 1 }}"
+      - name: "Avarma Pumpe C2"
+        unique_id: avarma_pumpe_c2
+        default_entity_id: binary_sensor.avarma_pumpe_c2
+        state: "{{ (((states('sensor.hausinstallation_avarma_ausgangszustand_code') | int(0)) // 16) % 2) == 1 }}"
+      - name: "Avarma Pumpe C3"
+        unique_id: avarma_pumpe_c3
+        default_entity_id: binary_sensor.avarma_pumpe_c3
+        state: "{{ (((states('sensor.hausinstallation_avarma_ausgangszustand_code') | int(0)) // 32) % 2) == 1 }}"
+      - name: "Avarma Heizstab E1"
+        unique_id: avarma_heizstab_e1
+        default_entity_id: binary_sensor.avarma_heizstab_e1
+        state: "{{ (((states('sensor.hausinstallation_avarma_ausgangszustand_code') | int(0)) // 64) % 2) == 1 }}"
+      - name: "Avarma Heizstab E2"
+        unique_id: avarma_heizstab_e2
+        default_entity_id: binary_sensor.avarma_heizstab_e2
+        state: "{{ (((states('sensor.hausinstallation_avarma_ausgangszustand_code') | int(0)) // 128) % 2) == 1 }}"
+      - name: "Avarma Ventil G1"
+        unique_id: avarma_ventil_g1
+        default_entity_id: binary_sensor.avarma_ventil_g1
+        state: "{{ (((states('sensor.hausinstallation_avarma_ausgangszustand_code') | int(0)) // 256) % 2) == 1 }}"
+      - name: "Avarma Ventil G2"
+        unique_id: avarma_ventil_g2
+        default_entity_id: binary_sensor.avarma_ventil_g2
+        state: "{{ (((states('sensor.hausinstallation_avarma_ausgangszustand_code') | int(0)) // 512) % 2) == 1 }}"
+
+      # Frostsperre-Wunsch (Hysterese 4/6 °C) – nur Anzeige; die Automation dazu ist optional
+      - name: "Avarma Frostsperre gewünscht"
+        unique_id: avarma_frostsperre_gewunscht
+        default_entity_id: binary_sensor.avarma_frostsperre_gewunscht
+        delay_on: "00:05:00"
+        delay_off: "00:30:00"
+        state: >-
+          {% set s = states('sensor.hausinstallation_avarma_aussentemperatur') %}
+          {% if not is_number(s) or (s | float) < -40 or (s | float) > 60 %}{{ is_state('select.hausinstallation_avarma_betrieb', 'EIN') }}
+          {% elif (s | float) < 4 %}true
+          {% elif (s | float) > 6 %}false
+          {% else %}{{ is_state('select.hausinstallation_avarma_betrieb', 'EIN') }}{% endif %}
+
+      # Ältere Bewertbarkeit (bleibt für die Ampelkarten erhalten)
+      - name: "Avarma Kältekreis bewertbar"
+        unique_id: avarma_kaltekreis_bewertbar
+        default_entity_id: binary_sensor.avarma_kaltekreis_bewertbar
+        state: >-
+          {% set esp = is_state('binary_sensor.hausinstallation_avarma_status', 'on') %}
+          {% set run = is_state('binary_sensor.avarma_verdichter_lauft', 'on') %}
+          {% set defr = is_state('binary_sensor.avarma_abtauung', 'off') %}
+          {% set vs = states.binary_sensor.avarma_verdichter_lauft %}
+          {% set ds = states.binary_sensor.avarma_abtauung %}
+          {% set t_run = (now() - vs.last_changed).total_seconds() if vs is not none else 0 %}
+          {% set t_def = (now() - ds.last_changed).total_seconds() if ds is not none else 0 %}
+          {% set n = ['sensor.hausinstallation_avarma_sauggastemperatur', 'sensor.hausinstallation_avarma_verdampfungstemperatur',
+                      'sensor.hausinstallation_avarma_kondensationstemperatur', 'sensor.hausinstallation_avarma_flussigtemperatur_kaltemittel',
+                      'sensor.hausinstallation_avarma_vorlauftemperatur', 'sensor.hausinstallation_avarma_rucklauftemperatur',
+                      'sensor.hausinstallation_avarma_aussentemperatur'] | select('has_value') | list | count %}
+          {{ esp and run and defr and t_run > 600 and t_def > 600 and n == 7 }}
+
+  # ---------------- Modus / Fehler ----------------
+  - sensor:
+      - name: "Avarma Modus"
+        unique_id: avarma_modus
+        default_entity_id: sensor.avarma_modus
+        state: >-
+          {% set c = states('sensor.hausinstallation_avarma_aktueller_betrieb_code') | int(-1) %}
+          {{ {0: 'Aus', 1: 'Warmwasser', 2: 'Heizen', 4: 'Kühlen'}.get(c, 'Code ' ~ c) }}
+
+      - name: "Avarma Visueller Modus"
+        unique_id: avarma_visueller_modus
+        default_entity_id: sensor.avarma_visueller_modus
+        state: >-
+          {% if not is_state('binary_sensor.hausinstallation_avarma_status', 'on') %}offline
+          {% elif is_state('binary_sensor.avarma_fehler_aktiv', 'on') or is_state('binary_sensor.avarma_alarm', 'on') %}stoerung
+          {% elif is_state('binary_sensor.avarma_abtauung', 'on') %}abtauen
+          {% elif is_state('select.hausinstallation_avarma_betrieb', 'AUS') %}aus
+          {% elif is_state('binary_sensor.avarma_verdichter_lauft', 'on') %}heizen
+          {% else %}standby{% endif %}
+
+      - name: "Avarma Aktive Fehler"
+        unique_id: avarma_aktive_fehler
+        default_entity_id: sensor.avarma_aktive_fehler
+        state: >-
+          {% set names = {1:'Außenfühler defekt',2:'Lamellenfühler defekt',3:'Sauggasfühler defekt',4:'EVI-Eintrittsfühler',5:'EVI-Austrittsfühler',6:'Heißgasfühler defekt',7:'Warmwasserfühler defekt',8:'Vorlauffühler defekt',9:'Rücklauffühler defekt',10:'Kältemittelfühler defekt',11:'Hochdrucksensor defekt',12:'Niederdrucksensor defekt',13:'Hochdruck-Schutz',14:'Niederdruck-Schutz',15:'Wasserdurchfluss zu gering',16:'Kommunikationsfehler',17:'Heißgas zu hoch',18:'EEPROM-Parameterfehler',20:'IPM-Schutz',21:'Spannungsfehler',22:'Spreizung VL/RL zu groß',23:'WW-Frostschutz 2x',24:'Heizkreis-Frostschutz 2x',26:'T6-Fühler defekt',27:'Außentemperatur über Grenze',28:'Rücklauf zu hoch (Kühlen)',29:'Raumfühler defekt',32:'Vorlauf zu hoch (Heizen)',36:'Lüftertreiber Kommunikation',40:'Vorlauf zu niedrig (Kühlen)',44:'DC-Lüftermotor 1',45:'DC-Lüftermotor 2',50:'Kondensator Überhitzung',51:'Kältemittel-Konzentration hoch',56:'Primärstrom-Schutz',58:'Außentemperatur zu niedrig',59:'VL/RL vertauscht oder 4-Wege-Ventil',99:'Treiberplatine'} %}
+          {% set ns = namespace(l=[]) %}
+          {% for g in range(4) %}{% set v = states('sensor.hausinstallation_avarma_fehlergruppe_' ~ g ~ '_code') | int(0) %}
+          {% for b in range(16) %}{% if (v // (2 ** b)) % 2 == 1 %}{% set c = 16 * g + b + 1 %}
+          {% set ns.l = ns.l + ['E%02d %s' % (c, names.get(c, 'unbekannt'))] %}{% endif %}{% endfor %}{% endfor %}
+          {{ (ns.l | join(', '))[:250] if ns.l | length > 0 else 'keine' }}
+
+      - name: "Avarma Fehlerspeicher"
+        unique_id: avarma_fehlerspeicher
+        default_entity_id: sensor.avarma_fehlerspeicher
+        state: >-
+          {% set ns = namespace(l=[]) %}
+          {% for i in range(1, 9) %}{% set v = states('sensor.hausinstallation_avarma_fehlerspeicher_' ~ i) | int(0) %}
+          {% if v > 0 %}{% set ns.l = ns.l + ['E%02d' % v] %}{% endif %}{% endfor %}
+          {{ (ns.l | join(', ')) if ns.l | length > 0 else 'leer' }}
+
+  # ---------------- Kältekreis-Kennwerte (nur bei laufendem Verdichter) ----------------
+      - name: "Avarma Überhitzung"
+        unique_id: avarma_uberhitzung
+        default_entity_id: sensor.avarma_uberhitzung
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: >-
+          {% if is_state('binary_sensor.avarma_verdichter_lauft', 'on') %}
+          {{ ((states('sensor.hausinstallation_avarma_sauggastemperatur') | float(0)) - (states('sensor.hausinstallation_avarma_verdampfungstemperatur') | float(0))) | round(1) }}
+          {% else %}{{ none }}{% endif %}
+
+      - name: "Avarma Unterkühlung"
+        unique_id: avarma_unterkuhlung
+        default_entity_id: sensor.avarma_unterkuhlung
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: >-
+          {% if is_state('binary_sensor.avarma_verdichter_lauft', 'on') %}
+          {{ ((states('sensor.hausinstallation_avarma_kondensationstemperatur') | float(0)) - (states('sensor.hausinstallation_avarma_flussigtemperatur_kaltemittel') | float(0))) | round(1) }}
+          {% else %}{{ none }}{% endif %}
+
+      - name: "Avarma Temperaturhub"
+        unique_id: avarma_temperaturhub
+        default_entity_id: sensor.avarma_temperaturhub
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: >-
+          {% if is_state('binary_sensor.avarma_verdichter_lauft', 'on') %}
+          {{ ((states('sensor.hausinstallation_avarma_kondensationstemperatur') | float(0)) - (states('sensor.hausinstallation_avarma_verdampfungstemperatur') | float(0))) | round(1) }}
+          {% else %}{{ none }}{% endif %}
+
+      - name: "Avarma Spreizung"
+        unique_id: avarma_spreizung
+        default_entity_id: sensor.avarma_spreizung
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: "{{ ((states('sensor.hausinstallation_avarma_vorlauftemperatur') | float(0)) - (states('sensor.hausinstallation_avarma_rucklauftemperatur') | float(0))) | round(1) }}"
+
+      - name: "Avarma Luft Verdampfung"
+        unique_id: avarma_luft_verdampfung
+        default_entity_id: sensor.avarma_luft_verdampfung
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: >-
+          {% if is_state('binary_sensor.avarma_verdichter_lauft', 'on') and has_value('sensor.hausinstallation_avarma_aussentemperatur') and has_value('sensor.hausinstallation_avarma_verdampfungstemperatur') %}
+          {{ ((states('sensor.hausinstallation_avarma_aussentemperatur') | float) - (states('sensor.hausinstallation_avarma_verdampfungstemperatur') | float)) | round(1) }}
+          {% else %}{{ none }}{% endif %}
+
+      - name: "Avarma Kondensation Vorlauf"
+        unique_id: avarma_kondensation_vorlauf
+        default_entity_id: sensor.avarma_kondensation_vorlauf
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: >-
+          {% if is_state('binary_sensor.avarma_verdichter_lauft', 'on') and has_value('sensor.hausinstallation_avarma_kondensationstemperatur') and has_value('sensor.hausinstallation_avarma_vorlauftemperatur') %}
+          {{ ((states('sensor.hausinstallation_avarma_kondensationstemperatur') | float) - (states('sensor.hausinstallation_avarma_vorlauftemperatur') | float)) | round(1) }}
+          {% else %}{{ none }}{% endif %}

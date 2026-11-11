@@ -1,0 +1,1560 @@
+{
+ "__inputs": [
+  {
+   "name": "DS_INFLUX",
+   "label": "InfluxDB (Flux)",
+   "type": "datasource",
+   "pluginId": "influxdb",
+   "pluginName": "InfluxDB"
+  }
+ ],
+ "title": "Avarma Kältekreis – Kalibrierung (experimentell)",
+ "uid": "avarma-kk-kalibrierung",
+ "tags": [
+  "avarma",
+  "kaeltekreis",
+  "experimentell"
+ ],
+ "timezone": "browser",
+ "graphTooltip": 1,
+ "editable": true,
+ "schemaVersion": 39,
+ "time": {
+  "from": "now-24h",
+  "to": "now"
+ },
+ "refresh": "1m",
+ "templating": {
+  "list": [
+   {
+    "name": "ds",
+    "label": "Datenquelle",
+    "type": "datasource",
+    "query": "influxdb",
+    "current": {}
+   },
+   {
+    "name": "bucket",
+    "label": "Bucket",
+    "type": "textbox",
+    "query": "homeassistant",
+    "current": {
+     "text": "homeassistant",
+     "value": "homeassistant"
+    }
+   }
+  ]
+ },
+ "panels": [
+  {
+   "id": 1,
+   "type": "text",
+   "title": "Hinweis",
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 3
+   },
+   "options": {
+    "mode": "markdown",
+    "content": "**Experimentelle Auswertung – keine Herstellerfreigabe.** Rohwerte links (ohne Nullauffüllung, Lücken bleiben Lücken), 5-min-Median rechts. Grün/Gelb/Rot werden hier bewusst **nicht** verwendet. Herstellersoll Überhitzung Heizen 0,5 K (P92–P96, Regelziel, kein Grenzwert). Ursache negativer Werte ist offen (Te-Auflösung 0,5 K, Ts/Te asynchron). Alle Panels teilen Zeitachse und Fadenkreuz."
+   }
+  },
+  {
+   "id": 2,
+   "type": "timeseries",
+   "title": "Verdichter Hz · Lüfter rpm",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 3,
+    "w": 12,
+    "h": 6
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"hausinstallation_avarma_verdichterfrequenz_ist\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Verdichter Hz\"}))\n  |> yield(name: \"A\")"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"hausinstallation_avarma_lufter_1_drehzahl\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Lüfter rpm\"}))\n  |> yield(name: \"B\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "hertz",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*Verdichter.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#ff8a2a"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*Lüfter.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#3ac8ef"
+        }
+       },
+       {
+        "id": "custom.axisPlacement",
+        "value": "right"
+       },
+       {
+        "id": "unit",
+        "value": "rotrpm"
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 3,
+   "type": "timeseries",
+   "title": "Außentemperatur",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 3,
+    "w": 12,
+    "h": 6
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"hausinstallation_avarma_aussentemperatur\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Außen\"}))\n  |> yield(name: \"A\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "celsius",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*Außen.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#48d18c"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 4,
+   "type": "timeseries",
+   "title": "Wasser VL / RL",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 9,
+    "w": 12,
+    "h": 6
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"hausinstallation_avarma_vorlauftemperatur\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"VL\"}))\n  |> yield(name: \"A\")"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"hausinstallation_avarma_rucklauftemperatur\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"RL\"}))\n  |> yield(name: \"B\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "celsius",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*VL.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#ff727f"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*RL.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#4c9eff"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 5,
+   "type": "timeseries",
+   "title": "Durchfluss",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 9,
+    "w": 12,
+    "h": 6
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"hausinstallation_avarma_wasserdurchfluss\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Durchfluss\"}))\n  |> yield(name: \"A\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*Durchfluss.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#4c9eff"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 6,
+   "type": "timeseries",
+   "title": "Expansionsventil (EEV-Schritte)",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 15,
+    "w": 12,
+    "h": 6
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"hausinstallation_avarma_expansionsventil_schritte\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"EEV-Schritte\"}))\n  |> yield(name: \"A\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*EEV.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#b5a0ff"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 7,
+   "type": "timeseries",
+   "title": "Überhitzung − Herstellersoll (P92–P96, Median 5 min, nur stabil)",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 15,
+    "w": 12,
+    "h": 6
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_sh_abweichung_vom_soll\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"SH − Soll\"}))\n  |> yield(name: \"A\")"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_sh_soll_hersteller\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Soll Hersteller\"}))\n  |> yield(name: \"B\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "kelvin",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*SH − Soll.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#4c9eff"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*Soll Hersteller.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#48d18c"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 8,
+   "type": "state-timeline",
+   "title": "Abtau-Bits und Bewertbarkeit",
+   "description": "Bit 1024 des Ausgangszustand-Codes ist nicht identisch mit Bit 16 (Abtauung). Siehe Kalibrierbericht.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 21,
+    "w": 24,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_abtauung\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Abtauung (Bit 16)\"}))\n  |> yield(name: \"A\")"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_abtauung_gefiltert\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Abtauung gefiltert\"}))\n  |> yield(name: \"B\")"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_vierwegeventil\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"4-Wege-Ventil\"}))\n  |> yield(name: \"C\")"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_mq_stabiler_heizbetrieb\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Stabiler Heizbetrieb\"}))\n  |> yield(name: \"D\")"
+    },
+    {
+     "refId": "E",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_mq_messdaten_ok\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Messdaten OK\"}))\n  |> yield(name: \"E\")"
+    },
+    {
+     "refId": "F",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_sh_unter_schwelle_stabil\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"SH unter Schwelle\"}))\n  |> yield(name: \"F\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "showValue": "never",
+    "mergeValues": true,
+    "rowHeight": 0.8,
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "showLegend": false
+    }
+   }
+  },
+  {
+   "id": 9,
+   "type": "timeseries",
+   "title": "Überhitzung SH · roh  (Ts − Te)",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 28,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_uberhitzung\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Überhitzung SH roh\"}))\n  |> yield(name: \"A\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "kelvin",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*roh.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#ffbf55"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 10,
+   "type": "timeseries",
+   "title": "Überhitzung SH · median_5min",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 28,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_uberhitzung\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: 5m, fn: median, createEmpty: false)\n  |> map(fn: (r) => ({r with _field: \"Überhitzung SH Median 5 min (alle)\"}))\n  |> yield(name: \"A\")"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_mq_sh_stabil\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: 5m, fn: median, createEmpty: false)\n  |> map(fn: (r) => ({r with _field: \"Überhitzung SH Median 5 min (nur stabil)\"}))\n  |> yield(name: \"B\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "kelvin",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*alle.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#91a5c0"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*nur stabil.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#4c9eff"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 11,
+   "type": "timeseries",
+   "title": "Unterkühlung SC · roh  (Tk − Ty)",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 35,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_unterkuhlung\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Unterkühlung SC roh\"}))\n  |> yield(name: \"A\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "kelvin",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*roh.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#ffbf55"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 12,
+   "type": "timeseries",
+   "title": "Unterkühlung SC · median_5min",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 35,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_unterkuhlung\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: 5m, fn: median, createEmpty: false)\n  |> map(fn: (r) => ({r with _field: \"Unterkühlung SC Median 5 min (alle)\"}))\n  |> yield(name: \"A\")"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_mq_sc_stabil\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: 5m, fn: median, createEmpty: false)\n  |> map(fn: (r) => ({r with _field: \"Unterkühlung SC Median 5 min (nur stabil)\"}))\n  |> yield(name: \"B\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "kelvin",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*alle.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#91a5c0"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*nur stabil.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#4c9eff"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 13,
+   "type": "timeseries",
+   "title": "Temperaturhub · roh  (Tk − Te)",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 42,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_temperaturhub\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Temperaturhub roh\"}))\n  |> yield(name: \"A\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "kelvin",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*roh.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#ffbf55"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 14,
+   "type": "timeseries",
+   "title": "Temperaturhub · median_5min",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 42,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_temperaturhub\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: 5m, fn: median, createEmpty: false)\n  |> map(fn: (r) => ({r with _field: \"Temperaturhub Median 5 min (alle)\"}))\n  |> yield(name: \"A\")"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_mq_hub_stabil\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: 5m, fn: median, createEmpty: false)\n  |> map(fn: (r) => ({r with _field: \"Temperaturhub Median 5 min (nur stabil)\"}))\n  |> yield(name: \"B\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "kelvin",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*alle.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#91a5c0"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*nur stabil.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#4c9eff"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 15,
+   "type": "timeseries",
+   "title": "Luft − Verdampfung · roh  (Außen − Te)",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 49,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_luft_verdampfung\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Luft − Verdampfung roh\"}))\n  |> yield(name: \"A\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "kelvin",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*roh.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#ffbf55"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 16,
+   "type": "timeseries",
+   "title": "Luft − Verdampfung · median_5min",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 49,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_luft_verdampfung\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: 5m, fn: median, createEmpty: false)\n  |> map(fn: (r) => ({r with _field: \"Luft − Verdampfung Median 5 min (alle)\"}))\n  |> yield(name: \"A\")"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_mq_luftverd_stabil\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: 5m, fn: median, createEmpty: false)\n  |> map(fn: (r) => ({r with _field: \"Luft − Verdampfung Median 5 min (nur stabil)\"}))\n  |> yield(name: \"B\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "kelvin",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*alle.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#91a5c0"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*nur stabil.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#4c9eff"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 17,
+   "type": "timeseries",
+   "title": "Kondensation − VL · roh  (Tk − VL)",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 56,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_kondensation_vorlauf\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Kondensation − VL roh\"}))\n  |> yield(name: \"A\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "kelvin",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*roh.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#ffbf55"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 18,
+   "type": "timeseries",
+   "title": "Kondensation − VL · median_5min",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 56,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_kondensation_vorlauf\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: 5m, fn: median, createEmpty: false)\n  |> map(fn: (r) => ({r with _field: \"Kondensation − VL Median 5 min (alle)\"}))\n  |> yield(name: \"A\")"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_mq_kondvl_stabil\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: 5m, fn: median, createEmpty: false)\n  |> map(fn: (r) => ({r with _field: \"Kondensation − VL Median 5 min (nur stabil)\"}))\n  |> yield(name: \"B\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "kelvin",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*alle.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#91a5c0"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*nur stabil.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#4c9eff"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 19,
+   "type": "timeseries",
+   "title": "Spreizung VL/RL · roh  (VL − RL)",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 63,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_spreizung\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> map(fn: (r) => ({r with _field: \"Spreizung VL/RL roh\"}))\n  |> yield(name: \"A\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "kelvin",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*roh.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#ffbf55"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  },
+  {
+   "id": 20,
+   "type": "timeseries",
+   "title": "Spreizung VL/RL · median_5min",
+   "description": "",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "${ds}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 63,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_spreizung\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: 5m, fn: median, createEmpty: false)\n  |> map(fn: (r) => ({r with _field: \"Spreizung VL/RL Median 5 min (alle)\"}))\n  |> yield(name: \"A\")"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "${ds}"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r.entity_id == \"avarma_mq_spreizung_stabil\" and r._field == \"value\")\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: 5m, fn: median, createEmpty: false)\n  |> map(fn: (r) => ({r with _field: \"Spreizung VL/RL Median 5 min (nur stabil)\"}))\n  |> yield(name: \"B\")"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "kelvin",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "pointSize": 3,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "fillOpacity": 0
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*alle.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#91a5c0"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byRegexp",
+       "options": ".*nur stabil.*"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#4c9eff"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "tooltip": {
+     "mode": "multi"
+    },
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   }
+  }
+ ]
+}

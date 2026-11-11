@@ -1,0 +1,2219 @@
+# =========================================================================
+# Avarma (Hofman) 12 kW – Waveshare ESP32-S3-RS485-CAN-U – ESPHome (Modbus RTU)
+# Teil von avarma-ha · https://github.com/AWendt206/
+# Copyright (c) 2026 AWendt206 (https://github.com/AWendt206/)
+#
+# LIZENZ DIESER DATEI: CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/)
+#   Die Registeradressen wurden mit der Veröffentlichung von KaHu85
+#   (github.com/KaHu85/HA-Hofman-Energy-Dashboard-avarma-heatpump, CC BY-NC-SA 4.0)
+#   abgeglichen. Deshalb gilt für diese Datei dieselbe Lizenz; der Rest des
+#   Repositories steht unter MIT (siehe LICENSE und NOTICE.md).
+#
+# EXPERIMENTELL – Registerzuordnung nicht vom Hersteller bestätigt.
+#   Startadresse 0x1100 (= 4352) + Offset; im Betrieb geprüft an einer
+#   Avarma 12 kW V1 (Software Hauptplatine 1514).
+#
+# Anschluss: RS485 A+/B− an die Displayleitung der Avarma (12 V NICHT anschließen,
+#   Display wird abgeklemmt – der ESP32 ersetzt es als Modbus-Master). Siehe docs/hardware.md.
+#
+# Lesen: Messwerte, Zustands-/Fehlercodes, Zähler, Parameter.
+# SCHREIBEN: nur die Entitäten unter "number:" und "select:" (Betrieb, Regelart, Vorlauf-Soll,
+#   Hysterese P06, Frequenzen P46/P47/P114, Lüfter max P60, Nachtmodus P15–P17).
+#   Jede Änderung wirkt sofort auf die Anlage. Kältekreis/EEV (P32, P89–P96) wird nie geschrieben.
+#
+# Gerätename "Hausinstallation Avarma" beibehalten – die HA-Packages erwarten
+# Entitäts-IDs mit dem Präfix hausinstallation_avarma_.
+# Benötigte secrets.yaml-Einträge: wifi_ssid, wifi_password, ap_password,
+#   api_encryption_key, ota_password (Vorlage: secrets.example.yaml)
+# =========================================================================
+
+esphome:
+  name: hausinstallation-avarma
+  friendly_name: Hausinstallation Avarma
+
+esp32:
+  variant: esp32s3
+  flash_size: 8MB
+  framework:
+    type: esp-idf
+
+logger:
+  level: INFO
+  # Zur Fehlersuche beim Modbus-Auslesen die folgenden Zeilen aktivieren:
+  # logs:
+  #   modbus_controller: DEBUG
+  #   modbus: DEBUG
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Avarma Fallback Hotspot"
+    password: !secret ap_password
+
+captive_portal:
+ 
+# -------------------------------------------------------------------------
+# RS485 am Waveshare-Board (Anschluss an COMM 4 / Display-Port der Avarma)
+# -------------------------------------------------------------------------
+uart:
+  - id: modbus_uart
+    tx_pin: GPIO17
+    rx_pin: GPIO18
+    baud_rate: 9600
+    data_bits: 8
+    stop_bits: 1
+    parity: NONE
+ 
+modbus:
+  id: avarma_modbus
+  uart_id: modbus_uart
+  flow_control_pin: GPIO21
+ 
+# Avarma Wärmepumpe, Modbus-Slave-Adresse 1
+modbus_controller:
+  - id: avarma_wp
+    modbus_id: avarma_modbus
+    address: 1
+    update_interval: 10s
+ 
+# -------------------------------------------------------------------------
+# Sensoren: Live-Werte (nur lesen, alle 10 s)
+# -------------------------------------------------------------------------
+sensor:
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Außentemperatur"          # C02, 0x1108
+    address: 4360
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Rücklauftemperatur"          # C07 Wassereintritt, 0x110D
+    address: 4365
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Vorlauftemperatur"          # C08 Wasseraustritt, 0x110E
+    address: 4366
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Heißgastemperatur"          # C01 Discharge, 0x1107
+    address: 4359
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Verdichterfrequenz Ist"          # C15, 0x1115
+    address: 4373
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "Hz"
+    device_class: frequency
+    state_class: measurement
+    accuracy_decimals: 0
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Verdichterfrequenz Soll"          # C20, 0x111A
+    address: 4378
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "Hz"
+    device_class: frequency
+    state_class: measurement
+    accuracy_decimals: 0
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Verdichterstrom"          # C21, 0x111B
+    address: 4379
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Hochdruck"          # C13, 0x1113 (0,01 MPa = 0,1 bar)
+    address: 4371
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "bar"
+    device_class: pressure
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Niederdruck"          # C14, 0x1114 (0,01 MPa = 0,1 bar)
+    address: 4372
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "bar"
+    device_class: pressure
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Wasserdurchfluss"          # C10, 0x1110
+    address: 4368
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "L/min"
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+# -------------------------------------------------------------------------
+# Zustandsregister (nur lesen, Rohwerte, alle 10 s) – zur Analyse von Takten
+# und EIN/AUS-Verhalten. Die Bits werten wir später gemeinsam aus.
+# -------------------------------------------------------------------------
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Betriebszustand Code"          # C31-C35, 0x1102
+    address: 4354
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Ausgangszustand Code"          # C36-C44, 0x1103
+    address: 4355
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Schaltereingänge Code"          # C29-C30-C32-C60-C61, 0x1104
+    address: 4356
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Frequenzbegrenzung Code"          # R_4387, 0x1123
+    address: 4387
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+ 
+# -------------------------------------------------------------------------
+# Erweiterung: weitere Betriebswerte (nur lesen). Registerliste ergänzt nach
+# github.com/KaHu85/HA-Hofman-Energy-Dashboard-avarma-heatpump (CC BY-NC-SA 4.0),
+# Adressen jeweils Spalte "Decimal". Bei einem Wert ohne Fühler zeigt die
+# Anlage Platzhalter, diese Sensoren werden dann ignoriert.
+# -------------------------------------------------------------------------
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Lamellentemperatur"          # Tc, 0x1106
+    address: 4358
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Sauggastemperatur"          # Ts, 0x1109
+    address: 4361
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Flüssigtemperatur Kältemittel"          # Ty, 0x110C
+    address: 4364
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Spreizung Anlage"          # Temperaturdifferenz Hauptkreis, 0x1111
+    address: 4369
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "K"
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Lüfter 1 Drehzahl"          # 0x1116
+    address: 4374
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "U/min"
+    state_class: measurement
+    accuracy_decimals: 0
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Lüfter 2 Drehzahl"          # 0x1117
+    address: 4375
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "U/min"
+    state_class: measurement
+    accuracy_decimals: 0
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Expansionsventil Schritte"          # EEV, 0x1118
+    address: 4376
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "Schritte"
+    state_class: measurement
+    accuracy_decimals: 0
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "IPM Temperatur"          # 0x111C
+    address: 4380
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 0
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Netzspannung"          # AC, 0x111D
+    address: 4381
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 0
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "DC Zwischenkreis"          # 0x111E
+    address: 4382
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 0
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Verdampfungstemperatur"          # 0x1121
+    address: 4385
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Kondensationstemperatur"          # 0x1122
+    address: 4386
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Solltemperatur berechnet"          # 0x1124
+    address: 4388
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Solltemperatur Heizkurve"          # OTC-Heizkurve, 0x1125
+    address: 4389
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Pumpe PWM"          # 0x112D
+    address: 4397
+    register_type: holding
+    value_type: U_WORD
+    state_class: measurement
+    accuracy_decimals: 0
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Verdichter Phasenstrom"          # 0x112E
+    address: 4398
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Pumpe C1 Leistung"          # 0x1203
+    address: 4611
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "%"
+    state_class: measurement
+    accuracy_decimals: 0
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Aktueller Betrieb Code"          # 0 aus, 1 WW, 2 Heizen, 4 Kühlen, 0x1204
+    address: 4612
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Ölrückführung aktiv"          # 0/1, 0x1201
+    address: 4609
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Verdichterstarts gesamt"          # Zähler der Anlage, 0x1200
+    address: 4608
+    register_type: holding
+    value_type: U_WORD
+    state_class: total_increasing
+    accuracy_decimals: 0
+    skip_updates: 5
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Verdichter Betriebsstunden"          # 0x1202
+    address: 4610
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "h"
+    device_class: duration
+    state_class: total_increasing
+    accuracy_decimals: 0
+    skip_updates: 5
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Abtauvorgänge gesamt"          # Zähler der Anlage, 0x1205
+    address: 4613
+    register_type: holding
+    value_type: U_WORD
+    state_class: total_increasing
+    accuracy_decimals: 0
+    skip_updates: 5
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "R290 Konzentration"          # 0,1 %, 0x1209
+    address: 4617
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "%"
+    state_class: measurement
+    accuracy_decimals: 1
+    skip_updates: 5
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "R290 Alarmgrenze"          # 0,1 %, 0x120A
+    address: 4618
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 5
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "R290 Alarm Code"          # 0x120B
+    address: 4619
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 5
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Fehlergruppe 0 Code"          # Bits E01-E51, 0x1126
+    address: 4390
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 5
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Fehlergruppe 1 Code"          # Bits E01-E51, 0x1127
+    address: 4391
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 5
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Fehlergruppe 2 Code"          # Bits E01-E51, 0x1128
+    address: 4392
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 5
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Fehlergruppe 3 Code"          # Bits E01-E51, 0x1129
+    address: 4393
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 5
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Treiberfehler 0 Code"          # Bits, 0x112A
+    address: 4394
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 5
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Treiberfehler 1 Code"          # Bits, 0x112B
+    address: 4395
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 5
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Treiberfehler 2 Code"          # Bits, 0x112C
+    address: 4396
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 5
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Fehlerspeicher 1"          # Code = E-Nummer, 0x1214
+    address: 4628
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Fehlerspeicher 2"          # Code = E-Nummer, 0x1215
+    address: 4629
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Fehlerspeicher 3"          # Code = E-Nummer, 0x1216
+    address: 4630
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Fehlerspeicher 4"          # Code = E-Nummer, 0x1217
+    address: 4631
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Fehlerspeicher 5"          # Code = E-Nummer, 0x1218
+    address: 4632
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Fehlerspeicher 6"          # Code = E-Nummer, 0x1219
+    address: 4633
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Fehlerspeicher 7"          # Code = E-Nummer, 0x121A
+    address: 4634
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Fehlerspeicher 8"          # Code = E-Nummer, 0x121B
+    address: 4635
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Modell Hauptplatine"          # 0x1100
+    address: 4352
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 359
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Software Hauptplatine"          # 0x1101
+    address: 4353
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 359
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Software Platine"          # 0x1207
+    address: 4615
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 359
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Wärme Monat 01 Anlage"          # Wärme erzeugt, 0,1 kWh
+    address: 5175
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Wärme Monat 02 Anlage"          # Wärme erzeugt, 0,1 kWh
+    address: 5176
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Wärme Monat 03 Anlage"          # Wärme erzeugt, 0,1 kWh
+    address: 5177
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Wärme Monat 04 Anlage"          # Wärme erzeugt, 0,1 kWh
+    address: 5178
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Wärme Monat 05 Anlage"          # Wärme erzeugt, 0,1 kWh
+    address: 5179
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Wärme Monat 06 Anlage"          # Wärme erzeugt, 0,1 kWh
+    address: 5180
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Wärme Monat 07 Anlage"          # Wärme erzeugt, 0,1 kWh
+    address: 5181
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Wärme Monat 08 Anlage"          # Wärme erzeugt, 0,1 kWh
+    address: 5182
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Wärme Monat 09 Anlage"          # Wärme erzeugt, 0,1 kWh
+    address: 5183
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Wärme Monat 10 Anlage"          # Wärme erzeugt, 0,1 kWh
+    address: 5184
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Wärme Monat 11 Anlage"          # Wärme erzeugt, 0,1 kWh
+    address: 5185
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Wärme Monat 12 Anlage"          # Wärme erzeugt, 0,1 kWh
+    address: 5186
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Strom Monat 01 Anlage"          # Strom verbraucht, 0,1 kWh
+    address: 5309
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Strom Monat 02 Anlage"          # Strom verbraucht, 0,1 kWh
+    address: 5310
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Strom Monat 03 Anlage"          # Strom verbraucht, 0,1 kWh
+    address: 5311
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Strom Monat 04 Anlage"          # Strom verbraucht, 0,1 kWh
+    address: 5312
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Strom Monat 05 Anlage"          # Strom verbraucht, 0,1 kWh
+    address: 5313
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Strom Monat 06 Anlage"          # Strom verbraucht, 0,1 kWh
+    address: 5314
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Strom Monat 07 Anlage"          # Strom verbraucht, 0,1 kWh
+    address: 5315
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Strom Monat 08 Anlage"          # Strom verbraucht, 0,1 kWh
+    address: 5316
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Strom Monat 09 Anlage"          # Strom verbraucht, 0,1 kWh
+    address: 5317
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Strom Monat 10 Anlage"          # Strom verbraucht, 0,1 kWh
+    address: 5318
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Strom Monat 11 Anlage"          # Strom verbraucht, 0,1 kWh
+    address: 5319
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Strom Monat 12 Anlage"          # Strom verbraucht, 0,1 kWh
+    address: 5320
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    skip_updates: 59
+    filters:
+      - multiply: 0.1
+ 
+# -------------------------------------------------------------------------
+# Parameter P00–P115 (nur lesen, Rohwerte, alle 5 Minuten; P00, P02, P06, P19, P46, P47, P60, P114 siehe number/select)
+# -------------------------------------------------------------------------
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P03"          # A/C Cooling Temperature Setting (Faktor laut Tabelle: 1.0, 0x1003)
+    address: 4099
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P04"          # DHW Temperature Setting (Faktor laut Tabelle: 1.0, 0x1004)
+    address: 4100
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P05"          # Indoor Temperature Setting (Faktor laut Tabelle: 1.0, 0x1005)
+    address: 4101
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P01"          # Function selection 2 (Faktor laut Tabelle: 1.0, 0x2001)
+    address: 8193
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P105"          # Compressor frequency up A platform frequency (Faktor laut Tabelle: 1.0, 0x2002)
+    address: 8194
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P106"          # Compressor A platform delay time (Faktor laut Tabelle: 1.0, 0x2003)
+    address: 8195
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P07"          # DHW Hysteresis temperature (Faktor laut Tabelle: 10.0, 0x2005)
+    address: 8197
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P08"          # A/C Heating AU maximum temperature (Faktor laut Tabelle: 10.0, 0x2006)
+    address: 8198
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P09"          # A/C Heating AU offset temperature (Faktor laut Tabelle: 10.0, 0x2007)
+    address: 8199
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P10"          # Sterilization interval days (Faktor laut Tabelle: 1.0, 0x2008)
+    address: 8200
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P11"          # Sterilization start time (Faktor laut Tabelle: 1.0, 0x2009)
+    address: 8201
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P12"          # Sterilization run time (Faktor laut Tabelle: 1.0, 0x200A)
+    address: 8202
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P13"          # Sterilization temperature (Faktor laut Tabelle: 10.0, 0x200B)
+    address: 8203
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P14"          # Sterilization mode selection (Faktor laut Tabelle: 1.0, 0x200C)
+    address: 8204
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P18"          # DHW AU function (Faktor laut Tabelle: 1.0, 0x2010)
+    address: 8208
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P20"          # Water pump working mode (Faktor laut Tabelle: 1.0, 0x2012)
+    address: 8210
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P21"          # Water pump antifreeze time (Faktor laut Tabelle: 1.0, 0x2013)
+    address: 8211
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P22"          # A/C Electric Auxiliary Thermal Start Ambient Temperature (Faktor laut Tabelle: 10.0, 0x2014)
+    address: 8212
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P23"          # DHW Electric Auxiliary Thermal Start Ambient Temperature (Faktor laut Tabelle: 10.0, 0x2015)
+    address: 8213
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P24"          # Electric heating E1/E2 stop ambient temperature hysteresis (Faktor laut Tabelle: 10.0, 0x2016)
+    address: 8214
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P25"          # A/C antifreeze temperature (Faktor laut Tabelle: 10.0, 0x2017)
+    address: 8215
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P26"          # Defrost Interval Multiplier (Faktor laut Tabelle: 1.0, 0x2018)
+    address: 8216
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P27"          # defrost cycle (Faktor laut Tabelle: 1.0, 0x2019)
+    address: 8217
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P28"          # Defrost mode (Faktor laut Tabelle: 1.0, 0x201A)
+    address: 8218
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P29"          # Defrost Start Coil Temperature (Faktor laut Tabelle: 10.0, 0x201B)
+    address: 8219
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P30"          # Defrost end Coil Temperature (Faktor laut Tabelle: 10.0, 0x201C)
+    address: 8220
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P31"          # Defrost working maximum time (Faktor laut Tabelle: 1.0, 0x201D)
+    address: 8221
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P32"          # Main valve control way (Faktor laut Tabelle: 1.0, 0x201E)
+    address: 8222
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P33"          # Main valve manual opening for heating (Faktor laut Tabelle: 1.0, 0x201F)
+    address: 8223
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P34"          # Main valve manual opening for cooling (Faktor laut Tabelle: 1.0, 0x2020)
+    address: 8224
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P35"          # DHW mode, compressor working upper limit water temperature (Faktor laut Tabelle: 10.0, 0x2021)
+    address: 8225
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P36"          # Interval time between compressor and E1 startup (Faktor laut Tabelle: 1.0, 0x2022)
+    address: 8226
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P37"          # Heating mode, DC fan speed variable (Faktor laut Tabelle: 10.0, 0x2023)
+    address: 8227
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P38"          # Cooling mode, DC fan speed variable (Faktor laut Tabelle: 10.0, 0x2024)
+    address: 8228
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P39"          # Inverter compressor model setting (Faktor laut Tabelle: 1.0, 0x2025)
+    address: 8229
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P40"          # Running set frequency function (Faktor laut Tabelle: 1.0, 0x2026)
+    address: 8230
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P41"          # Compressor oil return frequency (Faktor laut Tabelle: 1.0, 0x2027)
+    address: 8231
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P42"          # Compressor prohibits up-frequency current (Faktor laut Tabelle: 10.0, 0x2028)
+    address: 8232
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P43"          # Compressor down frequency current (Faktor laut Tabelle: 10.0, 0x2029)
+    address: 8233
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P44"          # Compressor shutdown current (Faktor laut Tabelle: 10.0, 0x202A)
+    address: 8234
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P45"          # Compressor maximum frequency (Faktor laut Tabelle: 1.0, 0x202B)
+    address: 8235
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P48"          # DHW maximum frequency (Faktor laut Tabelle: 1.0, 0x202E)
+    address: 8238
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P49"          # Exhaust overheat proportional coefficient (Faktor laut Tabelle: 10.0, 0x202F)
+    address: 8239
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P50"          # Exhaust overheat differential coefficient (Faktor laut Tabelle: 1.0, 0x2030)
+    address: 8240
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P51"          # High pressure prohibit boost pressure (Faktor laut Tabelle: 10.0, 0x2031)
+    address: 8241
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P52"          # High pressure cancel prohibits boost pressure (Faktor laut Tabelle: 10.0, 0x2032)
+    address: 8242
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P53"          # High voltage protection set point (Faktor laut Tabelle: 10.0, 0x2033)
+    address: 8243
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P54"          # Low voltage protection set point (Faktor laut Tabelle: 10.0, 0x2034)
+    address: 8244
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P55"          # High pressure protection release hysteresis (Faktor laut Tabelle: 10.0, 0x2035)
+    address: 8245
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P56"          # Low pressure protection release hysteresis (Faktor laut Tabelle: 100.0, 0x2036)
+    address: 8246
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P57"          # Exhaust temperature protection point (Faktor laut Tabelle: 1.0, 0x2037)
+    address: 8247
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P58"          # C1 water pump speed regulation temperature difference (Faktor laut Tabelle: 10.0, 0x2038)
+    address: 8248
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P59"          # PWM water pump minimum speed (Faktor laut Tabelle: 1.0, 0x2039)
+    address: 8249
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P61"          # Minimum water flow (Faktor laut Tabelle: 1.0, 0x203B)
+    address: 8251
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P62"          # A/C function selection (Faktor laut Tabelle: 1.0, 0x203C)
+    address: 8252
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P63"          # DHW function selection (Faktor laut Tabelle: 1.0, 0x203D)
+    address: 8253
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P64"          # Minimum opening of expansion valve (Faktor laut Tabelle: 1.0, 0x203E)
+    address: 8254
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P65"          # Water pump C2 function definition (Faktor laut Tabelle: 1.0, 0x203F)
+    address: 8255
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P66"          # Water source air cooling option (Faktor laut Tabelle: 1.0, 0x2040)
+    address: 8256
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P67"          # Indoor temperature controller (Faktor laut Tabelle: 1.0, 0x2041)
+    address: 8257
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P68"          # Water flow switch type selection (Faktor laut Tabelle: 1.0, 0x2042)
+    address: 8258
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P69"          # Type of fan (Faktor laut Tabelle: 1.0, 0x2043)
+    address: 8259
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P70"          # Power-down memory function (Faktor laut Tabelle: 1.0, 0x2044)
+    address: 8260
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P71"          # DC fan speed control (Faktor laut Tabelle: 1.0, 0x2045)
+    address: 8261
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P72"          # DC fan manual speed (Faktor laut Tabelle: 10.0, 0x2046)
+    address: 8262
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P73"          # Pressure sensor enable (Faktor laut Tabelle: 1.0, 0x2047)
+    address: 8263
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P74"          # Enthalpy injection valve control mode (Faktor laut Tabelle: 1.0, 0x2048)
+    address: 8264
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P75"          # EVI valve initial opening (manual opening) heating (Faktor laut Tabelle: 1.0, 0x2049)
+    address: 8265
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P76"          # EVI valve initial opening (manual opening) cooling (Faktor laut Tabelle: 1.0, 0x204A)
+    address: 8266
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P77"          # Spray enthalpy valve superheat (heating) (Faktor laut Tabelle: 10.0, 0x204B)
+    address: 8267
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P78"          # Spray enthalpy valve superheat (cooling) (Faktor laut Tabelle: 10.0, 0x204C)
+    address: 8268
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P79"          # WIFI data upload cycle (Faktor laut Tabelle: 1.0, 0x204D)
+    address: 8269
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P80"          # Calculate the minimum operating frequency of the compressor Coefficient (Faktor laut Tabelle: 10.0, 0x204E)
+    address: 8270
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P81"          # E1/E2 function mode definition (Faktor laut Tabelle: 1.0, 0x204F)
+    address: 8271
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P82"          # Second heat source starting temperature (Faktor laut Tabelle: 10.0, 0x2050)
+    address: 8272
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P83"          # Hot water circulation pump working mode (Faktor laut Tabelle: 1.0, 0x2051)
+    address: 8273
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P84"          # Hot water circulating pump opening temperature difference (Faktor laut Tabelle: 10.0, 0x2052)
+    address: 8274
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P85"          # Ambient temperature for defrosting (Faktor laut Tabelle: 10.0, 0x2053)
+    address: 8275
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P86"          # Defrost environment and coil temperature difference (Faktor laut Tabelle: 10.0, 0x2054)
+    address: 8276
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P88"          # C3 water pump function selection (Faktor laut Tabelle: 1.0, 0x2056)
+    address: 8278
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P89"          # Return air superheat ratio coefficient (Faktor laut Tabelle: 10.0, 0x2057)
+    address: 8279
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P90"          # Return air superheat differential coefficient (Faktor laut Tabelle: 1.0, 0x2058)
+    address: 8280
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P91"          # Defrost environment and coil temperature difference (Faktor laut Tabelle: 10.0, 0x2059)
+    address: 8281
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P92"          # Heating return air target superheat (Faktor laut Tabelle: 10.0, 0x205A)
+    address: 8282
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P93"          # Heating return air target superheat degree (Faktor laut Tabelle: 10.0, 0x205B)
+    address: 8283
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P94"          # Heating return air target superheat (Faktor laut Tabelle: 10.0, 0x205C)
+    address: 8284
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P95"          # Cooling return air target superheat (Faktor laut Tabelle: 10.0, 0x205D)
+    address: 8285
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P96"          # Heating return air target superheat degree (Faktor laut Tabelle: 10.0, 0x205E)
+    address: 8286
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P97"          # Parameter 96 (Faktor laut Tabelle: 1.0, 0x205F)
+    address: 8287
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P98"          # Inversion of the control signal for the G1 valve (Faktor laut Tabelle: 1.0, 0x2060)
+    address: 8288
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P99"          # Inversion of the control signal for the G2 valve (Faktor laut Tabelle: 1.0, 0x2061)
+    address: 8289
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P100"          # Inversion of the control signal for the G3 valve (Faktor laut Tabelle: 1.0, 0x2062)
+    address: 8290
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P101"          # EEV steps for defrosting (Faktor laut Tabelle: 1.0, 0x2063)
+    address: 8291
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P102"          # Temperature difference protection value of inlet and outlet water (Faktor laut Tabelle: 10.0, 0x2064)
+    address: 8292
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P103"          # EEV initial opening hold time (Faktor laut Tabelle: 1.0, 0x2065)
+    address: 8293
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P104"          # Initial compressor frequency for AC heating/cooling capacity calculation (Faktor laut Tabelle: 1.0, 0x2066)
+    address: 8294
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P107"          # PRt calculation volume (Faktor laut Tabelle: 1.0, 0x2067)
+    address: 8295
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P108"          # R485 monitoring address (Faktor laut Tabelle: 1.0, 0x2068)
+    address: 8296
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P109"          # Discharge temp. value 1 to limit compressor frequency (Faktor laut Tabelle: 1.0, 0x2069)
+    address: 8297
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P110"          # Discharge temp. value 2 to limit compressor frequency (Faktor laut Tabelle: 1.0, 0x206A)
+    address: 8298
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P111"          # Discharge temp. value 3 to limit compressor frequency (Faktor laut Tabelle: 1.0, 0x206B)
+    address: 8299
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P112"          # EEV adjustment temp. when discharge temp. is too high (Faktor laut Tabelle: 1.0, 0x206C)
+    address: 8300
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P113"          # EEV adjustment time when discharge temp. is too high (Faktor laut Tabelle: 1.0, 0x206D)
+    address: 8301
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "P115"          # Outlet temp. too high protection value (Faktor laut Tabelle: 1.0, 0x206F)
+    address: 8303
+    register_type: holding
+    value_type: S_WORD
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    skip_updates: 29
+ 
+  # --- Diagnose ---
+  - platform: wifi_signal
+    name: "WLAN-Signal"
+    update_interval: 60s
+    entity_category: diagnostic
+ 
+binary_sensor:
+  - platform: status
+    name: "Status"
+    entity_category: diagnostic
+ 
+# -------------------------------------------------------------------------
+# STEUERUNG – die einzigen beschreibbaren Register dieser Konfiguration
+# Ausgangsstand vor jeder Änderung (2026-11-02): P00 = 0, P02 = 32, P06 = 50 (5,0 K),
+# P19 = 0, P46 = 30, P47 = 30, P60 = 70 (700 U/min), P114 = 5
+# -------------------------------------------------------------------------
+number:
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Vorlauf-Sollwert Heizen"          # P02, 0x1002 (Forum: Heizen-Sollwert)
+    address: 4098
+    value_type: U_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    min_value: 25
+    max_value: 45
+    step: 1
+    mode: box
+    # Falls die Wärmepumpe Schreibbefehle nicht annimmt, testweise aktivieren:
+    # use_write_multiple: true
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Hysterese Heizen"          # P06, 0x2004 (Rohwert 50 = 5,0 K)
+    address: 8196
+    value_type: U_WORD
+    unit_of_measurement: "K"
+    multiply: 10
+    min_value: 3
+    max_value: 8
+    step: 0.5
+    mode: box
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Mindestfrequenz Verdichter"          # P46, 0x202C
+    address: 8236
+    value_type: U_WORD
+    unit_of_measurement: "Hz"
+    device_class: frequency
+    min_value: 30
+    max_value: 35
+    step: 1
+    mode: box
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Maximaldrehzahl Lüfter"          # P60, 0x203A (Rohwert 70, Annahme: 70 = 700 U/min)
+    address: 8250
+    value_type: U_WORD
+    unit_of_measurement: "U/min"
+    multiply: 0.1
+    min_value: 700
+    max_value: 900
+    step: 10
+    mode: box
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Frequenzabsenkung"          # P114, 0x206E
+    address: 8302
+    value_type: U_WORD
+    unit_of_measurement: "%"
+    min_value: 2
+    max_value: 5
+    step: 1
+    mode: box
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Abtaufrequenz"          # P47, 0x202D (Werk 65 Hz, Handbuch 30–90 Hz)
+    address: 8237
+    value_type: U_WORD
+    unit_of_measurement: "Hz"
+    device_class: frequency
+    min_value: 30
+    max_value: 70
+    step: 5
+    mode: box
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Nachtmodus Start"          # P15, 0x200D, Stunde 0-23 (Werk 22)
+    address: 8205
+    value_type: U_WORD
+    unit_of_measurement: "h"
+    min_value: 0
+    max_value: 23
+    step: 1
+    mode: box
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Nachtmodus Ende"          # P16, 0x200E, Stunde 0-23 (Werk 6)
+    address: 8206
+    value_type: U_WORD
+    unit_of_measurement: "h"
+    min_value: 0
+    max_value: 23
+    step: 1
+    mode: box
+ 
+select:
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Regelart Heizen"          # P19, 0x2011 (Annahme: 0 = fester Sollwert, 1 = OTC)
+    address: 8209
+    value_type: U_WORD
+    optionsmap:
+      "Fester Sollwert": 0
+      "Witterungsgeführt (OTC)": 1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Betrieb"          # P00, 0x1000 (Annahme: 0 = AUS, 1 = EIN)
+    address: 4096
+    value_type: U_WORD
+    optionsmap:
+      "AUS": 0
+      "EIN": 1
+ 
+  - platform: modbus_controller
+    modbus_controller_id: avarma_wp
+    name: "Nachtmodus"          # P17, 0x200F, 0 = aus, 1 = ein (leiser, reduzierte Verdichter-/Lüfterleistung)
+    address: 8207
+    value_type: U_WORD
+    optionsmap:
+      "AUS": 0
+      "EIN": 1
+ 
