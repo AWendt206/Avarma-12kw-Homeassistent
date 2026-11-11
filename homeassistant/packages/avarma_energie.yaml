@@ -1,0 +1,130 @@
+# Copyright (c) 2026 AWendt206 · MIT-Lizenz · https://github.com/AWendt206/
+# =====================================================================
+# Avarma – Energie: Wärme (Schätzung aus Durchfluss × Spreizung), Strom, COP, Arbeitszahl
+# EXPERIMENTELL. Wärmemenge ist eine Schätzung (kein geeichter Wärmezähler).
+#
+# ANPASSEN: Strommessung der Wärmepumpe
+#   Die Pakete erwarten zwei Adapter-Sensoren, die auf deinen eigenen Zähler zeigen:
+#     sensor.avarma_strom_leistung  (W)
+#     sensor.avarma_strom_energie   (kWh, stetig steigend)
+#   Trage unten bei AVARMA_STROM_* deine Quell-Entitäten ein
+#   (z. B. Shelly, Zigbee-Leitungsschutzschalter mit Messung, Smart-Meter-Unterzähler).
+# =====================================================================
+template:
+  - sensor:
+      # ---- Adapter: hier eigene Strommessung eintragen ----
+      - name: "Avarma Strom Leistung"
+        unique_id: avarma_strom_leistung
+        default_entity_id: sensor.avarma_strom_leistung
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        # AVARMA_STROM_LEISTUNG: Quelle anpassen
+        state: "{{ states('sensor.DEIN_STROMZAEHLER_LEISTUNG') | float(none) }}"
+        availability: "{{ has_value('sensor.DEIN_STROMZAEHLER_LEISTUNG') }}"
+
+      - name: "Avarma Strom Energie"
+        unique_id: avarma_strom_energie
+        default_entity_id: sensor.avarma_strom_energie
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        # AVARMA_STROM_ENERGIE: Quelle anpassen
+        state: "{{ states('sensor.DEIN_STROMZAEHLER_ENERGIE') | float(none) }}"
+        availability: "{{ has_value('sensor.DEIN_STROMZAEHLER_ENERGIE') }}"
+
+      # ---- Wärme ----
+      - name: "Avarma Wärmeleistung (Schätzung)"
+        unique_id: avarma_warmeleistung_schatzung
+        default_entity_id: sensor.avarma_warmeleistung_schatzung
+        unit_of_measurement: "kW"
+        device_class: power
+        state_class: measurement
+        # 0,0697 kW pro (l/min · K) = 4,18 kJ/(kg·K) / 60
+        state: >-
+          {% set q = states('sensor.hausinstallation_avarma_wasserdurchfluss') | float(0) %}
+          {% set dt = (states('sensor.hausinstallation_avarma_vorlauftemperatur') | float(0)) - (states('sensor.hausinstallation_avarma_rucklauftemperatur') | float(0)) %}
+          {{ (q * dt * 0.0697) | round(3) }}
+
+      - name: "Avarma COP aktuell"
+        unique_id: avarma_cop_aktuell
+        default_entity_id: sensor.avarma_cop_aktuell
+        state_class: measurement
+        state: >-
+          {% set p = states('sensor.avarma_strom_leistung') | float(0) %}
+          {% set q = states('sensor.avarma_warmeleistung_schatzung') | float(0) %}
+          {{ (q * 1000 / p) | round(1) if (p > 300 and is_state('binary_sensor.avarma_verdichter_lauft', 'on')) else none }}
+
+      - name: "Avarma Arbeitszahl Tag"
+        unique_id: avarma_arbeitszahl_tag
+        default_entity_id: sensor.avarma_arbeitszahl_tag
+        state_class: measurement
+        state: >-
+          {% set s = states('sensor.avarma_strom_tag') | float(0) %}
+          {% set w = states('sensor.avarma_warmemenge_tag') | float(0) %}
+          {{ (w / s) | round(2) if s > 0.3 else none }}
+
+      - name: "Avarma Arbeitszahl Monat (Schätzung)"
+        unique_id: avarma_arbeitszahl_monat_schatzung
+        default_entity_id: sensor.avarma_arbeitszahl_monat_schatzung
+        state_class: measurement
+        state: >-
+          {% set w = states('sensor.avarma_warmemenge_monat') | float(0) %}
+          {% set e = states('sensor.avarma_strom_monat') | float(0) %}
+          {{ (w / e) | round(2) if e > 0.3 else none }}
+
+      - name: "Avarma Arbeitszahl Jahr (Schätzung)"
+        unique_id: avarma_arbeitszahl_jahr_schatzung
+        default_entity_id: sensor.avarma_arbeitszahl_jahr_schatzung
+        state_class: measurement
+        state: >-
+          {% set w = states('sensor.avarma_warmemenge_jahr') | float(0) %}
+          {% set e = states('sensor.avarma_strom_jahr') | float(0) %}
+          {{ (w / e) | round(2) if e > 0.3 else none }}
+
+sensor:
+  - platform: integration
+    name: "Avarma Wärmemenge (Schätzung)"
+    unique_id: avarma_warmemenge_schatzung
+    source: sensor.avarma_warmeleistung_schatzung
+    method: trapezoidal
+    round: 3
+    unit_time: h
+
+utility_meter:
+  avarma_warmemenge_tag:
+    name: "Avarma Wärmemenge Tag"
+    unique_id: avarma_warmemenge_tag
+    source: sensor.avarma_warmemenge_schatzung
+    cycle: daily
+    periodically_resetting: true
+  avarma_warmemenge_monat:
+    name: "Avarma Wärmemenge Monat"
+    unique_id: avarma_warmemenge_monat
+    source: sensor.avarma_warmemenge_schatzung
+    cycle: monthly
+    periodically_resetting: true
+  avarma_warmemenge_jahr:
+    name: "Avarma Wärmemenge Jahr"
+    unique_id: avarma_warmemenge_jahr
+    source: sensor.avarma_warmemenge_schatzung
+    cycle: yearly
+    periodically_resetting: true
+  avarma_strom_tag:
+    name: "Avarma Strom Tag"
+    unique_id: avarma_strom_tag
+    source: sensor.avarma_strom_energie
+    cycle: daily
+    periodically_resetting: true
+  avarma_strom_monat:
+    name: "Avarma Strom Monat"
+    unique_id: avarma_strom_monat
+    source: sensor.avarma_strom_energie
+    cycle: monthly
+    periodically_resetting: true
+  avarma_strom_jahr:
+    name: "Avarma Strom Jahr"
+    unique_id: avarma_strom_jahr
+    source: sensor.avarma_strom_energie
+    cycle: yearly
+    periodically_resetting: true

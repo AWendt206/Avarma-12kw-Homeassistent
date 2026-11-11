@@ -13,3 +13,5 @@ Copyright (c) 2026 AWendt206 – https://github.com/AWendt206/
 - Überhitzungs-Status meldet höchstens „warnung“ (Herstellersoll 0,5 K ist Regelziel, keine Alarmgrenze)
 - README: Ampel-Richtwerte mit Bezug zur Parametertabelle des Handbuchs (HE-AI-290 Rev. 01, S. 77–81);
   Tabellen „Optimierung gegen das Takten“ mit Abgleich der Parameternummern (u. a. P32 = EEV-Modus, nicht ändern)
+- Screenshots aller Ansichten (inkl. Smartphone) und Schritt-für-Schritt-Anleitung für Einsteiger
+- MCP-Briefing für KI-Assistenten und Anleitung „Installation mit KI-Assistent (MCP)“; Übersicht der essenziellen Dateien

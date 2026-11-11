@@ -1,0 +1,125 @@
+# Copyright (c) 2026 AWendt206 · MIT-Lizenz · https://github.com/AWendt206/
+# =====================================================================
+# Avarma – Kältekreis-Ampel (Status je Kennwert) und "bewertete" Kennwerte
+# EXPERIMENTELL. Schwellen sind eigene Erfahrungswerte, KEINE Herstellergrenzen.
+# Status: ok / warnung / kritisch / inaktiv / unbekannt  (mit 0,3-K-Hysterese über this.state)
+#
+# Überhitzung: Der Hersteller regelt auf 0,5 K (P92–P96) und nennt keine Alarmgrenze.
+# Deshalb meldet der Überhitzungs-Status hier höchstens "warnung" – nie "kritisch".
+# Die Ampel ersetzt keine Schutzfunktion der Wärmepumpe.
+# =====================================================================
+template:
+  - sensor:
+      - name: "Avarma Status Überhitzung"
+        unique_id: avarma_status_uberhitzung
+        default_entity_id: sensor.avarma_status_uberhitzung
+        state: >-
+          {% set p = this.state if this is defined and this.state is defined else '' %}
+          {% if not is_state('binary_sensor.hausinstallation_avarma_status', 'on') %}unbekannt
+          {% elif not is_state('binary_sensor.avarma_kaltekreis_bewertbar', 'on') %}inaktiv
+          {% elif not has_value('sensor.avarma_uberhitzung') %}unbekannt
+          {% else %}{% set v = states('sensor.avarma_uberhitzung') | float %}
+          {% set lo_ok = -1.3 if p == 'ok' else -1.0 %}{% set hi_ok = 3.3 if p == 'ok' else 3.0 %}
+          {% if v < lo_ok or v > hi_ok %}warnung{% else %}ok{% endif %}{% endif %}
+
+      - name: "Avarma Status Unterkühlung"
+        unique_id: avarma_status_unterkuhlung
+        default_entity_id: sensor.avarma_status_unterkuhlung
+        state: >-
+          {% set p = this.state if this is defined and this.state is defined else '' %}
+          {% if not is_state('binary_sensor.hausinstallation_avarma_status', 'on') %}unbekannt
+          {% elif not is_state('binary_sensor.avarma_kaltekreis_bewertbar', 'on') %}inaktiv
+          {% elif not has_value('sensor.avarma_unterkuhlung') %}unbekannt
+          {% else %}{% set v = states('sensor.avarma_unterkuhlung') | float %}
+          {% set g1 = 0.7 if p == 'ok' else 1.0 %}{% set g2 = 8.3 if p == 'ok' else 8.0 %}
+          {% set r1 = 0.3 if p == 'kritisch' else 0.0 %}{% set r2 = 11.7 if p == 'kritisch' else 12.0 %}
+          {% if v < r1 or v > r2 %}kritisch{% elif v < g1 or v > g2 %}warnung{% else %}ok{% endif %}{% endif %}
+
+      - name: "Avarma Status Temperaturhub"
+        unique_id: avarma_status_temperaturhub
+        default_entity_id: sensor.avarma_status_temperaturhub
+        state: >-
+          {% set p = this.state if this is defined and this.state is defined else '' %}
+          {% if not is_state('binary_sensor.hausinstallation_avarma_status', 'on') %}unbekannt
+          {% elif not is_state('binary_sensor.avarma_kaltekreis_bewertbar', 'on') %}inaktiv
+          {% elif not has_value('sensor.avarma_temperaturhub') %}unbekannt
+          {% else %}{% set v = states('sensor.avarma_temperaturhub') | float %}
+          {% set g2 = 40.3 if p == 'ok' else 40.0 %}{% set r2 = 49.7 if p == 'kritisch' else 50.0 %}
+          {% if v > r2 %}kritisch{% elif v > g2 %}warnung{% else %}ok{% endif %}{% endif %}
+
+      - name: "Avarma Status Luft Verdampfung"
+        unique_id: avarma_status_luft_verdampfung
+        default_entity_id: sensor.avarma_status_luft_verdampfung
+        state: >-
+          {% set p = this.state if this is defined and this.state is defined else '' %}
+          {% if not is_state('binary_sensor.hausinstallation_avarma_status', 'on') %}unbekannt
+          {% elif not is_state('binary_sensor.avarma_kaltekreis_bewertbar', 'on') %}inaktiv
+          {% elif not has_value('sensor.avarma_luft_verdampfung') %}unbekannt
+          {% else %}{% set v = states('sensor.avarma_luft_verdampfung') | float %}
+          {% set g1 = 2.7 if p == 'ok' else 3.0 %}{% set g2 = 10.3 if p == 'ok' else 10.0 %}
+          {% set r1 = 1.3 if p == 'kritisch' else 1.0 %}{% set r2 = 13.7 if p == 'kritisch' else 14.0 %}
+          {% if v < r1 or v > r2 %}kritisch{% elif v < g1 or v > g2 %}warnung{% else %}ok{% endif %}{% endif %}
+
+      - name: "Avarma Status Kondensation Vorlauf"
+        unique_id: avarma_status_kondensation_vorlauf
+        default_entity_id: sensor.avarma_status_kondensation_vorlauf
+        state: >-
+          {% set p = this.state if this is defined and this.state is defined else '' %}
+          {% if not is_state('binary_sensor.hausinstallation_avarma_status', 'on') %}unbekannt
+          {% elif not is_state('binary_sensor.avarma_kaltekreis_bewertbar', 'on') %}inaktiv
+          {% elif not has_value('sensor.avarma_kondensation_vorlauf') %}unbekannt
+          {% else %}{% set v = states('sensor.avarma_kondensation_vorlauf') | float %}
+          {% set g1 = -1.3 if p == 'ok' else -1.0 %}{% set g2 = 6.3 if p == 'ok' else 6.0 %}
+          {% set r1 = -2.7 if p == 'kritisch' else -3.0 %}{% set r2 = 9.7 if p == 'kritisch' else 10.0 %}
+          {% if v < r1 or v > r2 %}kritisch{% elif v < g1 or v > g2 %}warnung{% else %}ok{% endif %}{% endif %}
+
+      - name: "Avarma Status Spreizung"
+        unique_id: avarma_status_spreizung
+        default_entity_id: sensor.avarma_status_spreizung
+        state: >-
+          {% set p = this.state if this is defined and this.state is defined else '' %}
+          {% if not is_state('binary_sensor.hausinstallation_avarma_status', 'on') %}unbekannt
+          {% elif not is_state('binary_sensor.avarma_kaltekreis_bewertbar', 'on') %}inaktiv
+          {% elif not has_value('sensor.avarma_spreizung') %}unbekannt
+          {% else %}{% set v = states('sensor.avarma_spreizung') | float %}
+          {% set hi_ok = 8.3 if p == 'ok' else 8.0 %}{% set lo_ok = -0.8 if p == 'ok' else -0.5 %}
+          {% set hi_w = 11.7 if p == 'kritisch' else 12.0 %}
+          {% if v >= hi_w %}kritisch{% elif v > hi_ok or v < lo_ok %}warnung{% else %}ok{% endif %}{% endif %}
+
+      # "Bewertete" Kennwerte: nur wenn der Kältekreis bewertbar ist, sonst leer
+      - name: "Avarma Bewertet Überhitzung"
+        unique_id: avarma_bewertet_uberhitzung
+        default_entity_id: sensor.avarma_bewertet_uberhitzung
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: "{% if is_state('binary_sensor.avarma_kaltekreis_bewertbar', 'on') and has_value('sensor.avarma_uberhitzung') %}{{ states('sensor.avarma_uberhitzung') | float | round(1) }}{% else %}{{ none }}{% endif %}"
+      - name: "Avarma Bewertet Unterkühlung"
+        unique_id: avarma_bewertet_unterkuhlung
+        default_entity_id: sensor.avarma_bewertet_unterkuhlung
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: "{% if is_state('binary_sensor.avarma_kaltekreis_bewertbar', 'on') and has_value('sensor.avarma_unterkuhlung') %}{{ states('sensor.avarma_unterkuhlung') | float | round(1) }}{% else %}{{ none }}{% endif %}"
+      - name: "Avarma Bewertet Temperaturhub"
+        unique_id: avarma_bewertet_temperaturhub
+        default_entity_id: sensor.avarma_bewertet_temperaturhub
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: "{% if is_state('binary_sensor.avarma_kaltekreis_bewertbar', 'on') and has_value('sensor.avarma_temperaturhub') %}{{ states('sensor.avarma_temperaturhub') | float | round(1) }}{% else %}{{ none }}{% endif %}"
+      - name: "Avarma Bewertet Luft Verdampfung"
+        unique_id: avarma_bewertet_luft_verdampfung
+        default_entity_id: sensor.avarma_bewertet_luft_verdampfung
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: "{% if is_state('binary_sensor.avarma_kaltekreis_bewertbar', 'on') and has_value('sensor.avarma_luft_verdampfung') %}{{ states('sensor.avarma_luft_verdampfung') | float | round(1) }}{% else %}{{ none }}{% endif %}"
+      - name: "Avarma Bewertet Kondensation Vorlauf"
+        unique_id: avarma_bewertet_kondensation_vorlauf
+        default_entity_id: sensor.avarma_bewertet_kondensation_vorlauf
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: "{% if is_state('binary_sensor.avarma_kaltekreis_bewertbar', 'on') and has_value('sensor.avarma_kondensation_vorlauf') %}{{ states('sensor.avarma_kondensation_vorlauf') | float | round(1) }}{% else %}{{ none }}{% endif %}"
+      - name: "Avarma Bewertet Spreizung"
+        unique_id: avarma_bewertet_spreizung
+        default_entity_id: sensor.avarma_bewertet_spreizung
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: "{% if is_state('binary_sensor.avarma_kaltekreis_bewertbar', 'on') and has_value('sensor.avarma_spreizung') %}{{ states('sensor.avarma_spreizung') | float | round(1) }}{% else %}{{ none }}{% endif %}"

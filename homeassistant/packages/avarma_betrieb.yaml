@@ -1,0 +1,319 @@
+# Copyright (c) 2026 AWendt206 · MIT-Lizenz · https://github.com/AWendt206/
+# =====================================================================
+# Avarma – Betrieb: Laufzeit, Starts, Abtauungen, Parameterspiegel, Parameter-Snapshot,
+# Vergleichsfenster für den Tab "Parameter-Wirkung".
+# Alle Automationen hier LESEN nur bzw. schreiben ausschließlich in eigene Helfer –
+# nie an die Wärmepumpe.
+# =====================================================================
+template:
+  - binary_sensor:
+      # Wie "Verdichter läuft", aber unavailable bei ESP32-Verbindungsabbruch
+      # (verhindert Schein-Starts nach WLAN-Aussetzern)
+      - name: "Avarma Verdichter läuft geprüft"
+        unique_id: avarma_verdichter_lauft_gepruft
+        default_entity_id: binary_sensor.avarma_verdichter_lauft_gepruft
+        device_class: running
+        state: "{{ states('sensor.hausinstallation_avarma_verdichterfrequenz_ist') | float(0) > 0 }}"
+        availability: "{{ has_value('sensor.hausinstallation_avarma_verdichterfrequenz_ist') and is_state('binary_sensor.hausinstallation_avarma_status', 'on') }}"
+
+  - sensor:
+      - name: "Avarma echte Heizstarts gesamt"
+        unique_id: avarma_echte_heizstarts_gesamt
+        default_entity_id: sensor.avarma_echte_heizstarts_gesamt
+        state_class: total_increasing
+        state: "{{ states('counter.avarma_echte_heizstarts') | int(0) }}"
+        availability: "{{ has_value('counter.avarma_echte_heizstarts') }}"
+
+      - name: "Avarma Heizstarts heute (Näherung)"
+        unique_id: avarma_heizstarts_heute_naherung
+        default_entity_id: sensor.avarma_heizstarts_heute_naherung
+        state_class: measurement
+        # Jede Abtauung erzeugt ca. zwei zusätzliche Verdichterstarts
+        state: "{{ [ (states('sensor.avarma_verdichterstarts_heute') | int(0)) - 2 * (states('sensor.avarma_abtauungen_heute') | int(0)), 0 ] | max }}"
+
+      - name: "Avarma Ø Laufzeit pro Start"
+        unique_id: avarma_o_laufzeit_pro_start
+        default_entity_id: sensor.avarma_o_laufzeit_pro_start
+        unit_of_measurement: "min"
+        state_class: measurement
+        state: >-
+          {% set n = states('sensor.avarma_verdichterstarts_heute') | int(0) %}
+          {% set h = states('sensor.avarma_laufzeit_heute') | float(0) %}
+          {{ ((h * 60) / n) | round(0) if n > 0 else none }}
+
+      - name: "Avarma VL-Abweichung Heizbetrieb"
+        unique_id: avarma_vl_abweichung_heizbetrieb
+        default_entity_id: sensor.avarma_vl_abweichung_heizbetrieb
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: >-
+          {% set vl = states('sensor.hausinstallation_avarma_vorlauftemperatur') | float(0) %}
+          {% set soll = states('number.hausinstallation_avarma_vorlauf_sollwert_heizen') | float(0)
+                if is_state('select.hausinstallation_avarma_regelart_heizen', 'Fester Sollwert')
+                else states('sensor.hausinstallation_avarma_solltemperatur_heizkurve') | float(0) %}
+          {{ (vl - soll) | abs | round(2) }}
+        availability: >-
+          {{ has_value('sensor.hausinstallation_avarma_vorlauftemperatur') and has_value('number.hausinstallation_avarma_vorlauf_sollwert_heizen')
+             and is_state('select.hausinstallation_avarma_betrieb', 'EIN') and is_state('binary_sensor.avarma_umwalzpumpe', 'on')
+             and is_state('binary_sensor.avarma_abtauung_gefiltert', 'off') and is_state('binary_sensor.hausinstallation_avarma_status', 'on') }}
+
+      - name: "Avarma VL während Abtauung"
+        unique_id: avarma_vl_wahrend_abtauung
+        default_entity_id: sensor.avarma_vl_wahrend_abtauung
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        state: "{{ states('sensor.hausinstallation_avarma_vorlauftemperatur') | float(0) }}"
+        availability: "{{ has_value('sensor.hausinstallation_avarma_vorlauftemperatur') and is_state('binary_sensor.avarma_abtauung_gefiltert', 'on') and is_state('binary_sensor.hausinstallation_avarma_status', 'on') }}"
+
+      # ---- Parameterspiegel (Rücklesewerte der ESPHome-number-Entitäten, für Statistik/Vergleich) ----
+      - name: "Avarma Param P02 Vorlauf-Soll"
+        unique_id: avarma_param_p02_vorlauf_soll
+        default_entity_id: sensor.avarma_param_p02_vorlauf_soll
+        unit_of_measurement: "°C"
+        state_class: measurement
+        state: "{{ states('number.hausinstallation_avarma_vorlauf_sollwert_heizen') | float(0) }}"
+        availability: "{{ has_value('number.hausinstallation_avarma_vorlauf_sollwert_heizen') }}"
+      - name: "Avarma Param P06 Hysterese"
+        unique_id: avarma_param_p06_hysterese
+        default_entity_id: sensor.avarma_param_p06_hysterese
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: "{{ states('number.hausinstallation_avarma_hysterese_heizen') | float(0) }}"
+        availability: "{{ has_value('number.hausinstallation_avarma_hysterese_heizen') }}"
+      - name: "Avarma Param P114 Frequenzabsenkung"
+        unique_id: avarma_param_p114_frequenzabsenkung
+        default_entity_id: sensor.avarma_param_p114_frequenzabsenkung
+        unit_of_measurement: "%"
+        state_class: measurement
+        state: "{{ states('number.hausinstallation_avarma_frequenzabsenkung') | float(0) }}"
+        availability: "{{ has_value('number.hausinstallation_avarma_frequenzabsenkung') }}"
+      - name: "Avarma Param P46 Mindestfrequenz"
+        unique_id: avarma_param_p46_mindestfrequenz
+        default_entity_id: sensor.avarma_param_p46_mindestfrequenz
+        unit_of_measurement: "Hz"
+        state_class: measurement
+        state: "{{ states('number.hausinstallation_avarma_mindestfrequenz_verdichter') | float(0) }}"
+        availability: "{{ has_value('number.hausinstallation_avarma_mindestfrequenz_verdichter') }}"
+      - name: "Avarma Param P47 Abtaufrequenz"
+        unique_id: avarma_param_p47_abtaufrequenz
+        default_entity_id: sensor.avarma_param_p47_abtaufrequenz
+        unit_of_measurement: "Hz"
+        state_class: measurement
+        state: "{{ states('number.hausinstallation_avarma_abtaufrequenz') | float(0) }}"
+        availability: "{{ has_value('number.hausinstallation_avarma_abtaufrequenz') }}"
+      - name: "Avarma Param P60 Lüfter max"
+        unique_id: avarma_param_p60_lufter_max
+        default_entity_id: sensor.avarma_param_p60_lufter_max
+        unit_of_measurement: "U/min"
+        state_class: measurement
+        state: "{{ states('number.hausinstallation_avarma_maximaldrehzahl_lufter') | float(0) }}"
+        availability: "{{ has_value('number.hausinstallation_avarma_maximaldrehzahl_lufter') }}"
+      - name: "Avarma Param P15 Nacht Start"
+        unique_id: avarma_param_p15_nacht_start
+        default_entity_id: sensor.avarma_param_p15_nacht_start
+        unit_of_measurement: "h"
+        state_class: measurement
+        state: "{{ states('number.hausinstallation_avarma_nachtmodus_start') | float(0) }}"
+        availability: "{{ has_value('number.hausinstallation_avarma_nachtmodus_start') }}"
+      - name: "Avarma Param P16 Nacht Ende"
+        unique_id: avarma_param_p16_nacht_ende
+        default_entity_id: sensor.avarma_param_p16_nacht_ende
+        unit_of_measurement: "h"
+        state_class: measurement
+        state: "{{ states('number.hausinstallation_avarma_nachtmodus_ende') | float(0) }}"
+        availability: "{{ has_value('number.hausinstallation_avarma_nachtmodus_ende') }}"
+      - name: "Avarma Param P17 Nachtmodus"
+        unique_id: avarma_param_p17_nachtmodus
+        default_entity_id: sensor.avarma_param_p17_nachtmodus
+        state_class: measurement
+        state: "{{ 1 if is_state('select.hausinstallation_avarma_nachtmodus', 'EIN') else 0 }}"
+        availability: "{{ has_value('select.hausinstallation_avarma_nachtmodus') }}"
+
+sensor:
+  - platform: history_stats
+    name: "Avarma Laufzeit heute"
+    unique_id: avarma_laufzeit_heute
+    entity_id: binary_sensor.avarma_verdichter_lauft
+    state: "on"
+    type: time
+    start: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0) }}"
+    end: "{{ now() }}"
+  - platform: history_stats
+    name: "Avarma Verdichterstarts heute"
+    unique_id: avarma_verdichterstarts_heute
+    entity_id: binary_sensor.avarma_verdichter_lauft
+    state: "on"
+    type: count
+    start: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0) }}"
+    end: "{{ now() }}"
+  - platform: history_stats
+    name: "Avarma Abtauungen heute"
+    unique_id: avarma_abtauungen_heute
+    entity_id: binary_sensor.avarma_abtauung_gefiltert
+    state: "on"
+    type: count
+    start: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0) }}"
+    end: "{{ now() }}"
+
+utility_meter:
+  hausinstallation_avarma_starts_tag_anlage:
+    name: "Starts Tag Anlage"
+    unique_id: avarma_starts_tag_anlage
+    source: sensor.hausinstallation_avarma_verdichterstarts_gesamt
+    cycle: daily
+    periodically_resetting: true
+  hausinstallation_avarma_abtauungen_tag_anlage:
+    name: "Abtauungen Tag Anlage"
+    unique_id: avarma_abtauungen_tag_anlage
+    source: sensor.hausinstallation_avarma_abtauvorgange_gesamt
+    cycle: daily
+    periodically_resetting: true
+
+counter:
+  avarma_echte_heizstarts:
+    name: "Avarma echte Heizstarts"
+    icon: mdi:play-circle-outline
+    restore: true
+
+input_text:
+  avarma_parameterprofil:
+    name: "Avarma Parameterprofil"
+    max: 255
+
+input_datetime:
+  avarma_parameterprofil_seit:
+    name: "Avarma Parameterprofil seit"
+    has_date: true
+    has_time: true
+  # Vergleichsfenster A (Referenz) und B (Test) für den Tab "Parameter-Wirkung"
+  avarma_vergleich_referenz_start:
+    name: "Avarma Vergleich Referenz Start"
+    has_date: true
+    has_time: true
+  avarma_vergleich_referenz_ende:
+    name: "Avarma Vergleich Referenz Ende"
+    has_date: true
+    has_time: true
+  avarma_vergleich_test_start:
+    name: "Avarma Vergleich Test Start"
+    has_date: true
+    has_time: true
+  avarma_vergleich_test_ende:
+    name: "Avarma Vergleich Test Ende"
+    has_date: true
+    has_time: true
+
+automation:
+  - id: avarma_echte_heizstarts_zahlen
+    alias: "Avarma – echte Heizstarts zählen"
+    description: >-
+      Zählt nur echte Heizstarts: Verdichter geprüft aus → ein, außerhalb von Abtauung
+      (inkl. 90 s Nachlauf von 'Abtauung gefiltert'). Schreibt nur in counter.avarma_echte_heizstarts,
+      nie an die Wärmepumpe.
+    mode: queued
+    max: 10
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.avarma_verdichter_lauft_gepruft
+        from: "off"
+        to: "on"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.avarma_abtauung_gefiltert
+        state: "off"
+      - condition: state
+        entity_id: binary_sensor.avarma_abtauung
+        state: "off"
+    actions:
+      - action: counter.increment
+        target:
+          entity_id: counter.avarma_echte_heizstarts
+
+  - id: avarma_parameter_snapshot
+    alias: "Avarma – Parameter-Snapshot"
+    description: >-
+      Erfasst bei jeder bestätigten Parameteränderung (Rücklesewert 2 min stabil, ESP32 verbunden)
+      ein Parameterprofil mit Zeitstempel, Logbuch-Eintrag und Event avarma_parameter_snapshot.
+      Liest nur, schreibt nie an die Wärmepumpe.
+    mode: queued
+    max: 20
+    triggers:
+      - trigger: state
+        entity_id:
+          - select.hausinstallation_avarma_betrieb
+          - number.hausinstallation_avarma_vorlauf_sollwert_heizen
+          - number.hausinstallation_avarma_hysterese_heizen
+          - number.hausinstallation_avarma_frequenzabsenkung
+          - number.hausinstallation_avarma_mindestfrequenz_verdichter
+          - number.hausinstallation_avarma_abtaufrequenz
+          - number.hausinstallation_avarma_maximaldrehzahl_lufter
+          - number.hausinstallation_avarma_nachtmodus_start
+          - number.hausinstallation_avarma_nachtmodus_ende
+          - select.hausinstallation_avarma_nachtmodus
+          - select.hausinstallation_avarma_regelart_heizen
+        not_from: [unavailable, unknown]
+        not_to: [unavailable, unknown]
+        for:
+          minutes: 2
+        id: aenderung
+      - trigger: state
+        entity_id: binary_sensor.hausinstallation_avarma_status
+        to: "on"
+        for:
+          minutes: 2
+        id: verbunden
+      - trigger: homeassistant
+        event: start
+        id: start
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.hausinstallation_avarma_status
+        state: "on"
+      - condition: not
+        conditions:
+          - condition: state
+            entity_id:
+              - select.hausinstallation_avarma_betrieb
+              - number.hausinstallation_avarma_vorlauf_sollwert_heizen
+              - number.hausinstallation_avarma_hysterese_heizen
+              - number.hausinstallation_avarma_frequenzabsenkung
+              - number.hausinstallation_avarma_mindestfrequenz_verdichter
+              - number.hausinstallation_avarma_abtaufrequenz
+              - number.hausinstallation_avarma_maximaldrehzahl_lufter
+              - number.hausinstallation_avarma_nachtmodus_start
+              - number.hausinstallation_avarma_nachtmodus_ende
+              - select.hausinstallation_avarma_nachtmodus
+              - select.hausinstallation_avarma_regelart_heizen
+            match: any
+            state: [unavailable, unknown]
+    actions:
+      - variables:
+          profil: >-
+            P00={{ states('select.hausinstallation_avarma_betrieb') }}|P19={{ 'Fest' if is_state('select.hausinstallation_avarma_regelart_heizen', 'Fester Sollwert') else 'OTC' }}|P02={{ states('number.hausinstallation_avarma_vorlauf_sollwert_heizen') | float(0) | round(1) }}|P06={{ states('number.hausinstallation_avarma_hysterese_heizen') | float(0) | round(1) }}|P114={{ states('number.hausinstallation_avarma_frequenzabsenkung') | float(0) | round(0) | int }}|P46={{ states('number.hausinstallation_avarma_mindestfrequenz_verdichter') | float(0) | round(0) | int }}|P47={{ states('number.hausinstallation_avarma_abtaufrequenz') | float(0) | round(0) | int }}|P60={{ states('number.hausinstallation_avarma_maximaldrehzahl_lufter') | float(0) | round(0) | int }}|P17={{ states('select.hausinstallation_avarma_nachtmodus') }}|P15={{ states('number.hausinstallation_avarma_nachtmodus_start') | float(0) | round(0) | int }}|P16={{ states('number.hausinstallation_avarma_nachtmodus_ende') | float(0) | round(0) | int }}
+          alt: "{{ states('input_text.avarma_parameterprofil') }}"
+      - if:
+          - condition: template
+            value_template: "{{ profil != alt }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.avarma_parameterprofil
+            data:
+              value: "{{ profil }}"
+          - action: input_datetime.set_datetime
+            target:
+              entity_id: input_datetime.avarma_parameterprofil_seit
+            data:
+              timestamp: "{{ now().timestamp() }}"
+          - action: logbook.log
+            data:
+              name: "Avarma Parameterprofil"
+              entity_id: input_text.avarma_parameterprofil
+              message: "{{ 'Erstes Profil erfasst: ' ~ profil if alt in ['', 'unknown', 'unavailable'] else 'Profil geändert: ' ~ alt ~ ' → ' ~ profil }}"
+          - event: avarma_parameter_snapshot
+            event_data:
+              profil: "{{ profil }}"
+              vorher: "{{ alt }}"
+              ausloeser: "{{ trigger.id }}"
+              entity_id: "{{ trigger.entity_id | default('') }}"

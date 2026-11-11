@@ -1,0 +1,338 @@
+# Copyright (c) 2026 AWendt206 · MIT-Lizenz · https://github.com/AWendt206/
+# =====================================================================
+# Avarma – Diagnose: Messqualität, stabiler Heizbetrieb, Lernband, Überhitzungsdiagnose
+# EXPERIMENTELL. Das Lernband (P10–P90 der eigenen Messwerte) ist eine statistische
+# Häufigkeit – KEIN technisch sicherer Normalbereich und KEINE Freigabe.
+# Überhitzung: Herstellersoll 0,5 K (P92–P96) ist ein Regelziel, kein Grenzwert.
+# Nichts in dieser Datei schreibt an die Wärmepumpe; alle Grenzen wirken nur auf die Auswertung.
+# Hintergrund: docs/kalibrierung.md
+# =====================================================================
+
+# ---- Einstellbare Grenzen der Auswertung (Startwerte beim ersten Start setzen, siehe docs/installation.md) ----
+input_number:
+  avarma_mq_stabilisierung:
+    name: "Avarma MQ Stabilisierung"
+    min: 0
+    max: 60
+    step: 1
+    unit_of_measurement: "min"
+    mode: box
+    icon: mdi:timer-sand
+  avarma_mq_hz_toleranz:
+    name: "Avarma MQ Hz-Toleranz"
+    min: 1
+    max: 20
+    step: 1
+    unit_of_measurement: "Hz"
+    mode: box
+    icon: mdi:sine-wave
+  avarma_sh_diagnoseschwelle:
+    name: "Avarma SH Diagnoseschwelle"
+    min: -3
+    max: 2
+    step: 0.1
+    unit_of_measurement: "K"
+    mode: box
+    icon: mdi:thermometer-alert
+  avarma_sh_diagnosedauer:
+    name: "Avarma SH Diagnosedauer"
+    min: 1
+    max: 30
+    step: 1
+    unit_of_measurement: "min"
+    mode: box
+    icon: mdi:timer-alert-outline
+  avarma_fg_grenze_1:
+    name: "Avarma FG Grenze 1"
+    min: 20
+    max: 120
+    step: 1
+    unit_of_measurement: "Hz"
+    mode: box
+    icon: mdi:format-list-group
+  avarma_fg_grenze_2:
+    name: "Avarma FG Grenze 2"
+    min: 20
+    max: 120
+    step: 1
+    unit_of_measurement: "Hz"
+    mode: box
+    icon: mdi:format-list-group
+  avarma_fg_grenze_3:
+    name: "Avarma FG Grenze 3"
+    min: 20
+    max: 120
+    step: 1
+    unit_of_measurement: "Hz"
+    mode: box
+    icon: mdi:format-list-group
+
+template:
+  - binary_sensor:
+      - name: "Avarma MQ Messdaten OK"
+        unique_id: avarma_mq_messdaten_ok
+        default_entity_id: binary_sensor.avarma_mq_messdaten_ok
+        icon: mdi:check-network-outline
+        state: >-
+          {% set p = 'sensor.hausinstallation_avarma_' %}
+          {% set ids = [p~'sauggastemperatur', p~'verdampfungstemperatur', p~'kondensationstemperatur', p~'flussigtemperatur_kaltemittel',
+                        p~'vorlauftemperatur', p~'rucklauftemperatur', p~'niederdruck', p~'hochdruck', p~'verdichterfrequenz_ist',
+                        p~'aussentemperatur', p~'wasserdurchfluss'] %}
+          {% set nums = ids | map('states') | map('float', none) | reject('none') | list %}
+          {% set ts = [states.sensor.hausinstallation_avarma_sauggastemperatur, states.sensor.hausinstallation_avarma_verdampfungstemperatur,
+                       states.sensor.hausinstallation_avarma_niederdruck] | reject('none') | map(attribute='last_reported') | list %}
+          {% set fresh = ts | count == 3 and (now() - (ts | min)).total_seconds() <= 1800 %}
+          {{ is_state('binary_sensor.hausinstallation_avarma_status', 'on') and nums | count == ids | count and fresh
+             and states(p~'kondensationstemperatur') | float(0) > states(p~'verdampfungstemperatur') | float(0) }}
+
+      - name: "Avarma MQ Stabiler Heizbetrieb"
+        unique_id: avarma_mq_stabiler_heizbetrieb
+        default_entity_id: binary_sensor.avarma_mq_stabiler_heizbetrieb
+        icon: mdi:chart-bell-curve
+        state: >-
+          {% set stab = states('input_number.avarma_mq_stabilisierung') | float(10) %}
+          {% set tol = states('input_number.avarma_mq_hz_toleranz') | float(5) %}
+          {% set lauf = states.binary_sensor.avarma_verdichter_lauft_gepruft %}
+          {% set vwv = states.binary_sensor.avarma_vierwegeventil %}
+          {% set code = states('sensor.hausinstallation_avarma_ausgangszustand_code') | int(-1) %}
+          {% set span = states('sensor.avarma_mq_hz_spanne_5_min') | float(999) %}
+          {% set abt = states('sensor.avarma_mq_minuten_seit_abtauung') | float(-1) %}
+          {% if lauf is none or vwv is none or code < 0 %}false{% else %}
+          {% set t_lauf = (now() - lauf.last_changed).total_seconds() / 60 %}
+          {% set t_vwv = (now() - vwv.last_changed).total_seconds() / 60 %}
+          {% set b1024 = (code // 1024) % 2 == 1 %}
+          {{ is_state('binary_sensor.avarma_mq_messdaten_ok', 'on') and lauf.state == 'on' and t_lauf >= stab
+             and is_state('sensor.avarma_visueller_modus', 'heizen') and is_state('binary_sensor.avarma_abtauung', 'off')
+             and is_state('binary_sensor.avarma_abtauung_gefiltert', 'off') and not b1024 and t_vwv >= stab
+             and abt >= stab and span <= tol }}{% endif %}
+
+      - name: "Avarma SH unter Schwelle stabil"
+        unique_id: avarma_sh_unter_schwelle_stabil
+        default_entity_id: binary_sensor.avarma_sh_unter_schwelle_stabil
+        icon: mdi:thermometer-alert
+        state: >-
+          {% set m = states('sensor.avarma_mq_sh_median_5_min') | float(none) %}
+          {% set s = states('input_number.avarma_sh_diagnoseschwelle') | float(0) %}
+          {{ is_state('binary_sensor.avarma_mq_stabiler_heizbetrieb', 'on') and m is not none and m < s }}
+
+      - name: "Avarma SH Diagnose bestaetigt"
+        unique_id: avarma_sh_diagnose_bestaetigt
+        default_entity_id: binary_sensor.avarma_sh_diagnose_bestaetigt
+        icon: mdi:clipboard-alert-outline
+        state: >-
+          {% set b = states.binary_sensor.avarma_sh_unter_schwelle_stabil %}
+          {% set d = states('input_number.avarma_sh_diagnosedauer') | float(15) %}
+          {{ b is not none and b.state == 'on' and (now() - b.last_changed).total_seconds() >= d * 60 }}
+
+  - sensor:
+      - name: "Avarma MQ Minuten seit Abtauung"
+        unique_id: avarma_mq_minuten_seit_abtauung
+        default_entity_id: sensor.avarma_mq_minuten_seit_abtauung
+        icon: mdi:snowflake-melt
+        unit_of_measurement: "min"
+        state_class: measurement
+        # Hinweis: zählt nach einem HA-Neustart ab dem Neustart (last_changed)
+        state: >-
+          {% set a = states.binary_sensor.avarma_abtauung %}{% set f = states.binary_sensor.avarma_abtauung_gefiltert %}
+          {% if a is none or f is none or a.state not in ['on','off'] %}{{ none }}
+          {% elif a.state == 'on' or f.state == 'on' %}0
+          {% else %}{% set t = [a.last_changed, f.last_changed] | max %}{{ ((now() - t).total_seconds() / 60) | round(0) | int }}{% endif %}
+
+      - name: "Avarma MQ Frequenzgruppe"
+        unique_id: avarma_mq_frequenzgruppe
+        default_entity_id: sensor.avarma_mq_frequenzgruppe
+        icon: mdi:format-list-group
+        state: >-
+          {% set hz = states('sensor.hausinstallation_avarma_verdichterfrequenz_ist') | float(none) %}
+          {% set g0 = states('sensor.avarma_param_p46_mindestfrequenz') | float(30) %}
+          {% set g1 = states('input_number.avarma_fg_grenze_1') | float(40) %}
+          {% set g2 = states('input_number.avarma_fg_grenze_2') | float(60) %}
+          {% set g3 = states('input_number.avarma_fg_grenze_3') | float(80) %}
+          {% if hz is none %}unbekannt
+          {% elif not is_state('binary_sensor.avarma_verdichter_lauft_gepruft', 'on') or hz <= 0 %}aus
+          {% elif hz < g0 %}< {{ g0 | int }} Hz
+          {% elif hz < g1 %}{{ g0 | int }}–{{ g1 | int }} Hz
+          {% elif hz < g2 %}{{ g1 | int }}–{{ g2 | int }} Hz
+          {% elif hz < g3 %}{{ g2 | int }}–{{ g3 | int }} Hz
+          {% else %}> {{ g3 | int }} Hz{% endif %}
+
+      # Kennwerte nur im stabilen Heizbetrieb (sonst unbekannt) – Quelle für Median und Lernband
+      - name: "Avarma MQ SH stabil"
+        unique_id: avarma_mq_sh_stabil
+        default_entity_id: sensor.avarma_mq_sh_stabil
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: "{% if is_state('binary_sensor.avarma_mq_stabiler_heizbetrieb','on') %}{{ states('sensor.avarma_uberhitzung') | float(none) }}{% else %}{{ none }}{% endif %}"
+      - name: "Avarma MQ SC stabil"
+        unique_id: avarma_mq_sc_stabil
+        default_entity_id: sensor.avarma_mq_sc_stabil
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: "{% if is_state('binary_sensor.avarma_mq_stabiler_heizbetrieb','on') %}{{ states('sensor.avarma_unterkuhlung') | float(none) }}{% else %}{{ none }}{% endif %}"
+      - name: "Avarma MQ Hub stabil"
+        unique_id: avarma_mq_hub_stabil
+        default_entity_id: sensor.avarma_mq_hub_stabil
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: "{% if is_state('binary_sensor.avarma_mq_stabiler_heizbetrieb','on') %}{{ states('sensor.avarma_temperaturhub') | float(none) }}{% else %}{{ none }}{% endif %}"
+      - name: "Avarma MQ LuftVerd stabil"
+        unique_id: avarma_mq_luftverd_stabil
+        default_entity_id: sensor.avarma_mq_luftverd_stabil
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: "{% if is_state('binary_sensor.avarma_mq_stabiler_heizbetrieb','on') %}{{ states('sensor.avarma_luft_verdampfung') | float(none) }}{% else %}{{ none }}{% endif %}"
+      - name: "Avarma MQ KondVL stabil"
+        unique_id: avarma_mq_kondvl_stabil
+        default_entity_id: sensor.avarma_mq_kondvl_stabil
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: "{% if is_state('binary_sensor.avarma_mq_stabiler_heizbetrieb','on') %}{{ states('sensor.avarma_kondensation_vorlauf') | float(none) }}{% else %}{{ none }}{% endif %}"
+      - name: "Avarma MQ Spreizung stabil"
+        unique_id: avarma_mq_spreizung_stabil
+        default_entity_id: sensor.avarma_mq_spreizung_stabil
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: "{% if is_state('binary_sensor.avarma_mq_stabiler_heizbetrieb','on') %}{{ states('sensor.avarma_spreizung') | float(none) }}{% else %}{{ none }}{% endif %}"
+
+      # Herstellersoll Überhitzung (P92–P96, Rohwert × 0,1 K); Zuordnung nach Außentemperatur sinngemäß
+      - name: "Avarma SH Soll Hersteller"
+        unique_id: avarma_sh_soll_hersteller
+        default_entity_id: sensor.avarma_sh_soll_hersteller
+        icon: mdi:target
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: >-
+          {% set p = 'sensor.hausinstallation_avarma_' %}{% set m = states('sensor.avarma_visueller_modus') | lower %}
+          {% set t = states(p ~ 'aussentemperatur') | float(none) %}
+          {% if 'kühl' in m %}{% set r = p ~ 'p95' %}{% elif t is none %}{% set r = none %}
+          {% elif t <= -5 %}{% set r = p ~ 'p92' %}{% elif t <= 5 %}{% set r = p ~ 'p93' %}
+          {% elif t <= 25 %}{% set r = p ~ 'p94' %}{% else %}{% set r = p ~ 'p96' %}{% endif %}
+          {% set v = states(r) | float(none) if r else none %}
+          {{ (v * 0.1) | round(1) if v is not none else none }}
+
+      - name: "Avarma SH Abweichung vom Soll"
+        unique_id: avarma_sh_abweichung_vom_soll
+        default_entity_id: sensor.avarma_sh_abweichung_vom_soll
+        icon: mdi:delta
+        unit_of_measurement: "K"
+        state_class: measurement
+        state: >-
+          {% set m = states('sensor.avarma_mq_sh_median_5_min') | float(none) %}
+          {% set s = states('sensor.avarma_sh_soll_hersteller') | float(none) %}
+          {% if is_state('binary_sensor.avarma_mq_stabiler_heizbetrieb', 'on') and m is not none and s is not none %}{{ (m - s) | round(1) }}{% else %}{{ none }}{% endif %}
+
+      # Priorität: Herstelleralarm > Messqualität unklar > nicht bewertbar > Prüfen > Beobachtung > unauffällig
+      - name: "Avarma KK Diagnosestatus"
+        unique_id: avarma_kk_diagnosestatus
+        default_entity_id: sensor.avarma_kk_diagnosestatus
+        icon: mdi:stethoscope
+        state: >-
+          {% if is_state('binary_sensor.avarma_alarm','on') or is_state('binary_sensor.avarma_fehler_aktiv','on') %}Herstelleralarm
+          {% elif not is_state('binary_sensor.avarma_verdichter_lauft_gepruft','on') %}inaktiv
+          {% elif not is_state('binary_sensor.avarma_mq_messdaten_ok','on') %}Messqualität unklar
+          {% elif not is_state('binary_sensor.avarma_mq_stabiler_heizbetrieb','on') %}nicht bewertbar
+          {% elif is_state('binary_sensor.avarma_sh_diagnose_bestaetigt','on') %}Prüfen: Messkette
+          {% elif is_state('binary_sensor.avarma_sh_unter_schwelle_stabil','on') %}Beobachtung
+          {% else %}unauffällig{% endif %}
+
+sensor:
+  # Spanne der Verdichterfrequenz über 5 min (max − min)
+  - platform: statistics
+    name: "Avarma MQ Hz-Spanne 5 min"
+    unique_id: avarma_mq_hz_spanne_5_min
+    entity_id: sensor.hausinstallation_avarma_verdichterfrequenz_ist
+    state_characteristic: distance_absolute
+    max_age: { minutes: 5 }
+    sampling_size: 600
+    keep_last_sample: true
+    precision: 0
+
+  # 5-min-Median der stabilen Kennwerte
+  - { platform: statistics, name: "Avarma MQ SH Median 5 min",        unique_id: avarma_mq_sh_median_5_min,        entity_id: sensor.avarma_mq_sh_stabil,        state_characteristic: median, max_age: { minutes: 5 }, sampling_size: 600, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma MQ SC Median 5 min",        unique_id: avarma_mq_sc_median_5_min,        entity_id: sensor.avarma_mq_sc_stabil,        state_characteristic: median, max_age: { minutes: 5 }, sampling_size: 600, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma MQ Hub Median 5 min",       unique_id: avarma_mq_hub_median_5_min,       entity_id: sensor.avarma_mq_hub_stabil,       state_characteristic: median, max_age: { minutes: 5 }, sampling_size: 600, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma MQ LuftVerd Median 5 min",  unique_id: avarma_mq_luftverd_median_5_min,  entity_id: sensor.avarma_mq_luftverd_stabil,  state_characteristic: median, max_age: { minutes: 5 }, sampling_size: 600, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma MQ KondVL Median 5 min",    unique_id: avarma_mq_kondvl_median_5_min,    entity_id: sensor.avarma_mq_kondvl_stabil,    state_characteristic: median, max_age: { minutes: 5 }, sampling_size: 600, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma MQ Spreizung Median 5 min", unique_id: avarma_mq_spreizung_median_5_min, entity_id: sensor.avarma_mq_spreizung_stabil, state_characteristic: median, max_age: { minutes: 5 }, sampling_size: 600, keep_last_sample: true, precision: 1 }
+
+  # Lernband P10 / P90 über 7 Tage (nur stabile Minuten) – lernend, keine Freigabe
+  - { platform: statistics, name: "Avarma Lernband SH P10",        unique_id: avarma_lernband_sh_p10,        entity_id: sensor.avarma_mq_sh_stabil,        state_characteristic: percentile, percentile: 10, max_age: { days: 7 }, sampling_size: 30000, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma Lernband SH P90",        unique_id: avarma_lernband_sh_p90,        entity_id: sensor.avarma_mq_sh_stabil,        state_characteristic: percentile, percentile: 90, max_age: { days: 7 }, sampling_size: 30000, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma Lernband SC P10",        unique_id: avarma_lernband_sc_p10,        entity_id: sensor.avarma_mq_sc_stabil,        state_characteristic: percentile, percentile: 10, max_age: { days: 7 }, sampling_size: 30000, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma Lernband SC P90",        unique_id: avarma_lernband_sc_p90,        entity_id: sensor.avarma_mq_sc_stabil,        state_characteristic: percentile, percentile: 90, max_age: { days: 7 }, sampling_size: 30000, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma Lernband Hub P10",       unique_id: avarma_lernband_hub_p10,       entity_id: sensor.avarma_mq_hub_stabil,       state_characteristic: percentile, percentile: 10, max_age: { days: 7 }, sampling_size: 30000, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma Lernband Hub P90",       unique_id: avarma_lernband_hub_p90,       entity_id: sensor.avarma_mq_hub_stabil,       state_characteristic: percentile, percentile: 90, max_age: { days: 7 }, sampling_size: 30000, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma Lernband LuftVerd P10",  unique_id: avarma_lernband_luftverd_p10,  entity_id: sensor.avarma_mq_luftverd_stabil,  state_characteristic: percentile, percentile: 10, max_age: { days: 7 }, sampling_size: 30000, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma Lernband LuftVerd P90",  unique_id: avarma_lernband_luftverd_p90,  entity_id: sensor.avarma_mq_luftverd_stabil,  state_characteristic: percentile, percentile: 90, max_age: { days: 7 }, sampling_size: 30000, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma Lernband KondVL P10",    unique_id: avarma_lernband_kondvl_p10,    entity_id: sensor.avarma_mq_kondvl_stabil,    state_characteristic: percentile, percentile: 10, max_age: { days: 7 }, sampling_size: 30000, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma Lernband KondVL P90",    unique_id: avarma_lernband_kondvl_p90,    entity_id: sensor.avarma_mq_kondvl_stabil,    state_characteristic: percentile, percentile: 90, max_age: { days: 7 }, sampling_size: 30000, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma Lernband Spreizung P10", unique_id: avarma_lernband_spreizung_p10, entity_id: sensor.avarma_mq_spreizung_stabil, state_characteristic: percentile, percentile: 10, max_age: { days: 7 }, sampling_size: 30000, keep_last_sample: true, precision: 1 }
+  - { platform: statistics, name: "Avarma Lernband Spreizung P90", unique_id: avarma_lernband_spreizung_p90, entity_id: sensor.avarma_mq_spreizung_stabil, state_characteristic: percentile, percentile: 90, max_age: { days: 7 }, sampling_size: 30000, keep_last_sample: true, precision: 1 }
+
+  # Tageswerte der Diagnose
+  - platform: history_stats
+    name: "Avarma SH Diagnose Dauer heute"
+    unique_id: avarma_sh_diagnose_dauer_heute
+    entity_id: binary_sensor.avarma_sh_unter_schwelle_stabil
+    state: "on"
+    type: time
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+  - platform: history_stats
+    name: "Avarma SH Diagnose Ereignisse heute"
+    unique_id: avarma_sh_diagnose_ereignisse_heute
+    entity_id: binary_sensor.avarma_sh_diagnose_bestaetigt
+    state: "on"
+    type: count
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+  - platform: history_stats
+    name: "Avarma Stabiler Heizbetrieb heute"
+    unique_id: avarma_stabiler_heizbetrieb_heute
+    entity_id: binary_sensor.avarma_mq_stabiler_heizbetrieb
+    state: "on"
+    type: time
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+
+# Startwerte der Grenzen einmalig nach der Installation setzen (danach frei änderbar)
+automation:
+  - id: avarma_diagnose_startwerte
+    alias: "Avarma – Diagnose-Startwerte setzen"
+    description: "Setzt beim ersten Start fehlende Startwerte der Auswertungsgrenzen. Schreibt nur in eigene input_number-Helfer."
+    mode: single
+    triggers:
+      - trigger: homeassistant
+        event: start
+    actions:
+      - variables:
+          startwerte:
+            input_number.avarma_mq_stabilisierung: 10
+            input_number.avarma_mq_hz_toleranz: 5
+            input_number.avarma_sh_diagnoseschwelle: 0
+            input_number.avarma_sh_diagnosedauer: 15
+            input_number.avarma_fg_grenze_1: 40
+            input_number.avarma_fg_grenze_2: 60
+            input_number.avarma_fg_grenze_3: 80
+      - repeat:
+          for_each: "{{ startwerte | list }}"
+          sequence:
+            - if:
+                - condition: template
+                  value_template: "{{ states(repeat.item) | float(0) == state_attr(repeat.item, 'min') | float(0) and not is_state('input_text.avarma_diagnose_initialisiert', 'ja') }}"
+              then:
+                - action: input_number.set_value
+                  target:
+                    entity_id: "{{ repeat.item }}"
+                  data:
+                    value: "{{ startwerte[repeat.item] }}"
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.avarma_diagnose_initialisiert
+        data:
+          value: "ja"
+
+input_text:
+  avarma_diagnose_initialisiert:
+    name: "Avarma Diagnose initialisiert"
+    max: 10

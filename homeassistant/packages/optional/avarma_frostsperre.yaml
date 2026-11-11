@@ -1,0 +1,54 @@
+# Copyright (c) 2026 AWendt206 · MIT-Lizenz · https://github.com/AWendt206/
+# =====================================================================
+# OPTIONAL – Avarma Frostsperre (schaltet die Wärmepumpe EIN/AUS!)
+#
+# ACHTUNG: Diese Automation SCHREIBT an die Anlage (select.hausinstallation_avarma_betrieb).
+# Sie ist absichtlich nicht im Standardumfang und startet DEAKTIVIERT (initial_state: false).
+# Nur nutzen, wenn du verstehst, was sie tut, und Frostschutz/Heizbetrieb anderweitig
+# gesichert ist. Nutzung auf eigene Gefahr.
+#
+# Logik: "Avarma Frostsperre gewünscht" (avarma_basis.yaml) = an unter 4 °C (nach 5 min),
+# aus über 6 °C (nach 30 min), dazwischen Zustand halten.
+# Einschalten erst nach 15 min AUS, Ausschalten erst nach 1 h EIN (Taktschutz).
+# Aktivieren: Datei nach packages/ kopieren und initial_state entfernen bzw. in der UI einschalten.
+# =====================================================================
+automation:
+  - id: avarma_frostsperre
+    alias: "Avarma Frostsperre (optional)"
+    initial_state: false
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.avarma_frostsperre_gewunscht
+        not_to: [unavailable, unknown]
+        id: wunsch
+      - trigger: time_pattern
+        minutes: "/10"
+        id: takt
+    actions:
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: binary_sensor.avarma_frostsperre_gewunscht
+                state: "on"
+              - condition: state
+                entity_id: select.hausinstallation_avarma_betrieb
+                state: "AUS"
+                for: { minutes: 15 }
+            sequence:
+              - action: select.select_option
+                target: { entity_id: select.hausinstallation_avarma_betrieb }
+                data: { option: "EIN" }
+          - conditions:
+              - condition: state
+                entity_id: binary_sensor.avarma_frostsperre_gewunscht
+                state: "off"
+              - condition: state
+                entity_id: select.hausinstallation_avarma_betrieb
+                state: "EIN"
+                for: { hours: 1 }
+            sequence:
+              - action: select.select_option
+                target: { entity_id: select.hausinstallation_avarma_betrieb }
+                data: { option: "AUS" }
