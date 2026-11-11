@@ -137,7 +137,7 @@ Der **Waveshare ESP32-S3-RS485-CAN-U** (Hutschiene, 7–36 V DC, RS485, WLAN mit
   https://github.com/AWendt206/
 - Schnittstelle: 9600 Baud, 8N1, Modbus-Slave-Adresse 1 (Handbuch P108 = 1), Abfrage alle 10 s;
   Waveshare-intern TX = GPIO17, RX = GPIO18, Richtung = GPIO21.
-
+- dieser waveshare ist galvanisch getrennt, es wird ein externes 12V Netzteil empfohlen
 Details, Stückliste und Sicherheitshinweise: [docs/hardware.md](docs/hardware.md)
 
 ## Registertabelle
